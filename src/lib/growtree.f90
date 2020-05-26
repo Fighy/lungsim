@@ -1980,13 +1980,15 @@ contains
        !C------------------------------------------------------------
        !C.Calculate mean branching statistics from values in branches
 
-        DO N=1,GENM
+        DO N=1,n_branch
+!       DO N=1,GENM
           DO j=3,5
             ntotaln(j-2)=ntotaln(j-2)+ntally(1,j,N)
          ENDDO !j
         ENDDO !N
 
-        DO N=1,GENM
+        DO N=1,n_branch
+!       DO N=1,GENM
           DO i=1,NUM_SCHEMES
             DO j=1,5
               IF(ntally(i,j,N).GT.0)THEN
@@ -2016,7 +2018,8 @@ contains
 
          i=2 !Horsfield orders
          j=6 !Nw/Nw-1
-         DO N=1,GENM-1
+!        DO N=1,GENM-1
+         DO N=1,n_branch-1
            IF(ntally(i,1,N).GT.0.AND.ntally(i,1,N+1).GT.0)THEN
              sum_mean(i,j,N)=DBLE(ntally(i,1,N))/DBLE(ntally(i,1,N+1))
            ELSE
@@ -2077,7 +2080,8 @@ contains
 
         !!-----------------------------------------------------
         !CC. SD = sqrt(1/(n-1)*sum)
-        DO N=1,GENM
+!       DO N=1,GENM
+        DO N=1,n_branch
            DO i=1,NUM_SCHEMES !for generations, Horsfield orders, Strahler orders
              DO j=1,5 !length, diameter, branching angle, rotation angle, L/D
                IF(ntally(i,j,N).GT.1)THEN

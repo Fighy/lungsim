@@ -62,11 +62,11 @@ shortest_length, rotation_limit, to_export, filename_f)
 
       call strncpy(filename_f, filename, filename_len)
 
-  #if defined _WIN32 && defined __INTEL_COMPILER
+#if defined _WIN32 && defined __INTEL_COMPILER
       call so_list_mesh_statistics(filename_f)
-  #else
+#else
       call list_mesh_statistics(filename_f)
-  #endif
+#endif
 
     end subroutine list_mesh_statistics_c
 
