@@ -1,14 +1,13 @@
-
 module geometry
-!*Brief Description:* This module handles all geometry read/write/generation.
-!
-!*LICENSE:*
-!
-!
-!
-!*Full Description:*
-!
-!This module handles all geometry read/write/generation.
+  !*Brief Description:* This module handles all geometry read/write/generation.
+  !
+  !*LICENSE:*
+  !
+  !
+  !
+  !*Full Description:*
+  !
+  !This module handles all geometry read/write/generation.
   use arrays
   use diagnostics
   use indices
@@ -45,23 +44,34 @@ module geometry
   public get_final_real
   public get_local_node_f
   public make_data_grid
+  public make_2d_vessel_from_1d
   public reallocate_node_elem_arrays
   public set_initial_volume
-  public list_mesh_statistics
+!bsha  !public list_mesh_statistics
   public triangles_from_surface
   public volume_of_mesh
+  public write_geo_file
   public get_final_integer
   public get_four_nodes
+  public write_elem_geometry_2d
+  public write_node_geometry_2d
 
 contains
-!
-!!!#####################################################################
-!
-!*allocate_node_arrays:* allocate memory for arrays associated with 1D trees
+
+!!!#############################################################################
+
   subroutine allocate_node_arrays(num_nodes)
+    !*allocate_node_arrays:* allocate memory for arrays associated with 1D trees
 
     integer,intent(in) :: num_nodes
-    
+    ! Local variables
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'allocate_node_arrays'
+    call enter_exit(sub_name,1)
+
     if(.not.allocated(nodes)) allocate (nodes(num_nodes))
     if(.not.allocated(node_xyz)) allocate (node_xyz(3,num_nodes))
     if(.not.allocated(node_field)) allocate (node_field(num_nj,num_nodes))
@@ -70,13 +80,16 @@ contains
     node_xyz = 0.0_dp !initialise
     node_field = 0.0_dp !initialise
 
+    call enter_exit(sub_name,2)
+
   end subroutine allocate_node_arrays
 
-!###################################################################################
-!
-!*add_mesh:* Reads in an ipmesh file and adds this mesh to the terminal branches of an existing tree geometry
+!!!#############################################################################
+
   subroutine add_mesh(AIRWAY_MESHFILE)
-  !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_ADD_MESH" :: ADD_MESH
+    !*add_mesh:* Reads in an ipmesh file and adds this mesh to the terminal
+    ! branches of an existing tree geometry
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_ADD_MESH" :: ADD_MESH
 
     character(len=MAX_FILENAME_LEN), intent(in) :: AIRWAY_MESHFILE
     ! Local parameters
@@ -91,6 +104,8 @@ contains
          parent_element,symmetry_temp
     real(dp),dimension(1000) :: length,radius,a_A
     character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
 
     sub_name = 'add_mesh'
     call enter_exit(sub_name,1)
@@ -184,6 +199,7 @@ contains
           elem_nodes(2,ne) = np
 
           elem_ordrs(1,ne) = ngen_parent + generation(i)
+          elem_ordrs(no_type,ne) = 1   ! ntype ! 0 for respiratory, 1 for conducting
           elem_symmetry(ne) = symmetry_temp(i)+1 ! uses 0/1 in file; 1/2 in code
 
           ! record the element connectivity
@@ -217,30 +233,32 @@ contains
 
   end subroutine add_mesh
 
-!
-!###################################################################################
-!
-!*add_matching_mesh:*
+!!!#############################################################################
+
   subroutine add_matching_mesh()
-  !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_ADD_MATCHING_MESH" :: ADD_MATCHING_MESH
+    !*add_matching_mesh:*
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_ADD_MATCHING_MESH" :: ADD_MATCHING_MESH
 
     !Parameters to become inputs
     real(dp) :: offset(3)
     logical :: REVERSE=.TRUE.
     character(len=60) :: mesh_type='terminal'
     !local variables
-    integer :: num_nodes_new,num_elems_new,ne,ne_global,np,np_global,np0,nonode,np_m
-    integer :: nj,ne_m,noelem,ne0,n,nindex,ne1,noelem0,nu,cap_conns,cap_term,np1,np2
+    integer :: num_nodes_new,num_elems_new,ne,ne_global,np,np_global,np0, &
+         nonode,np_m
+    integer :: nj,ne_m,noelem,ne0,n,nindex,ne1,noelem0,nu,cap_conns, &
+         cap_term,np1,np2
     integer, allocatable :: np_map(:)
     character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
 
     sub_name = 'add_matching_mesh'
     call enter_exit(sub_name,1)
     !Ultimately offset should be an input argument
     offset(1)=0.0_dp
-    offset(2)=1e-6_dp
+    offset(2)=1.0e-6_dp
     offset(3)=0.0_dp
-
 
     allocate(np_map(num_nodes))
 !!! increase the size of node and element arrays to accommodate the additional elements
@@ -248,12 +266,12 @@ contains
     num_nodes_new = 2*num_nodes
     ! the number of elems after adding mesh will be:
     if(mesh_type.eq.'basic')then
-      num_elems_new = 2*num_elems
+       num_elems_new = 2*num_elems
     elseif(mesh_type.eq.'terminal')then
-      num_elems_new = 2*num_elems + num_units
+       num_elems_new = 2*num_elems + num_units
     elseif(mesh_type.eq.'ladder')then
-        print *, "NOT YET IMPLEMENTED"
-        call exit(0)
+       print *, "NOT YET IMPLEMENTED"
+       call exit(0)
     endif
     call reallocate_node_elem_arrays(num_elems_new,num_nodes_new)
     noelem0=0
@@ -268,121 +286,124 @@ contains
        np_map(np_m)=np !maps new to old node numbering
        nodes(np0+nonode)=np
        do nj=1,3
-         node_xyz(nj,np)=node_xyz(nj,np_m)+offset(nj)
+          node_xyz(nj,np)=node_xyz(nj,np_m)+offset(nj)
        enddo
        elems_at_node(np,0)=0 !initialise
-     !Doesnt map versions, would be added here
+       !Doesnt map versions, would be added here
     enddo
 
     do noelem=1,num_elems
-        ne=ne_global+noelem
-        elem_field(ne_group,ne)=2.0_dp!VEIN
-        ne_m=elems(noelem)
-        elem_field(ne_group,ne_m)=0.0_dp!ARTERY
-        elems(ne0+noelem)=ne
-        if(.NOT.REVERSE)then
+       ne=ne_global+noelem
+       elem_field(ne_group,ne)=2.0_dp!VEIN
+       ne_m=elems(noelem)
+       elem_field(ne_group,ne_m)=0.0_dp!ARTERY
+       elems(ne0+noelem)=ne
+       if(.NOT.REVERSE)then
           elem_nodes(1,ne)=np_map(elem_nodes(1,ne_m))
           elem_nodes(2,ne)=np_map(elem_nodes(2,ne_m))
           elem_cnct(1,0,ne)=elem_cnct(1,0,ne_m)!The numberdownstream are the number downstream
           elem_cnct(-1,0,ne)=elem_cnct(-1,0,ne_m)
           do n=1,elem_cnct(1,0,ne)
-            elem_cnct(1,n,ne)=elem_cnct(1,n,ne_m)+ne0
+             elem_cnct(1,n,ne)=elem_cnct(1,n,ne_m)+ne0
           enddo
           do n=1,elem_cnct(-1,0,ne)
-            elem_cnct(-1,n,ne)=elem_cnct(-1,n,ne_m)+ne0
+             elem_cnct(-1,n,ne)=elem_cnct(-1,n,ne_m)+ne0
           enddo
-        else
+       else
           elem_nodes(1,ne)=np_map(elem_nodes(2,ne_m))
           elem_nodes(2,ne)=np_map(elem_nodes(1,ne_m))
           elem_cnct(-1,0,ne)=elem_cnct(1,0,ne_m) !The number upstream are the number downstream
           elem_cnct(1,0,ne)=elem_cnct(-1,0,ne_m)!The number downstream are the number upstream
           do n=1,elem_cnct(1,0,ne)
-            elem_cnct(1,n,ne)=elem_cnct(-1,n,ne_m)+ne0
+             elem_cnct(1,n,ne)=elem_cnct(-1,n,ne_m)+ne0
           enddo
           do n=1,elem_cnct(-1,0,ne)
-            elem_cnct(-1,n,ne)=elem_cnct(1,n,ne_m)+ne0
+             elem_cnct(-1,n,ne)=elem_cnct(1,n,ne_m)+ne0
           enddo
-        endif
-        !if worrying about regions and versions do it here
-        elems_at_node(elem_nodes(1,ne),0)=elems_at_node(elem_nodes(1,ne),0)+1
-        elems_at_node(elem_nodes(1,ne),elems_at_node(elem_nodes(1,ne),0))=ne
-        elems_at_node(elem_nodes(2,ne),0)=elems_at_node(elem_nodes(2,ne),0)+1
-        elems_at_node(elem_nodes(2,ne),elems_at_node(elem_nodes(2,ne),0))=ne
-        nindex=no_gen
-        elem_ordrs(nindex,ne)=elem_ordrs(nindex,ne_m)
-        nindex=no_sord
-        elem_ordrs(nindex,ne)=elem_ordrs(nindex,ne_m)
-        nindex=no_hord
-        elem_ordrs(nindex,ne)=elem_ordrs(nindex,ne_m)
-      enddo
+       endif
+       !if worrying about regions and versions do it here
+       elems_at_node(elem_nodes(1,ne),0)=elems_at_node(elem_nodes(1,ne),0)+1
+       elems_at_node(elem_nodes(1,ne),elems_at_node(elem_nodes(1,ne),0))=ne
+       elems_at_node(elem_nodes(2,ne),0)=elems_at_node(elem_nodes(2,ne),0)+1
+       elems_at_node(elem_nodes(2,ne),elems_at_node(elem_nodes(2,ne),0))=ne
+       nindex=no_gen
+       elem_ordrs(nindex,ne)=elem_ordrs(nindex,ne_m)
+       nindex=no_sord
+       elem_ordrs(nindex,ne)=elem_ordrs(nindex,ne_m)
+       nindex=no_hord
+       elem_ordrs(nindex,ne)=elem_ordrs(nindex,ne_m)
+    enddo
 
-     !update current no of nodes and elements to determine connectivity
-     np0=np !current highest node
-     ne1=ne !current highest element
-     noelem0=num_elems+noelem0
-     if(mesh_type.eq.'ladder')then
-        !To be implemented
-     elseif(mesh_type.eq.'terminal')then
+    !update current no of nodes and elements to determine connectivity
+    np0=np !current highest node
+    ne1=ne !current highest element
+    noelem0=num_elems+noelem0
+    if(mesh_type.eq.'ladder')then
+       !To be implemented
+    elseif(mesh_type.eq.'terminal')then
        cap_conns=0
        cap_term=0
        do nu=1,num_units
-         ne=units(nu)
-         cap_term=cap_term+1
-         np1=elem_nodes(2,ne)
-         np2=np_map(np1)
-         noelem0=noelem0+1
-         ne1=ne1+1
-         elems(noelem0)=ne1
-         elem_nodes(1,ne1)=np1
-         elem_nodes(2,ne1)=np2
-         elems_at_node(np1,0)=elems_at_node(np1,0)+1
-         elems_at_node(np1,elems_at_node(np1,0))=ne1
-         elems_at_node(np2,0)=elems_at_node(np2,0)+1
-         elems_at_node(np2,elems_at_node(np2,0))=ne1
-         elem_cnct(1,elem_cnct(1,0,ne)+1,ne)=ne1
-         elem_cnct(1,0,ne)=elem_cnct(1,0,ne)+1
-         elem_cnct(-1,elem_cnct(-1,0,ne+ne_global)+1,ne+ne_global)=ne1
-         elem_cnct(-1,0,ne+ne_global)=elem_cnct(-1,0,ne+ne_global)+1
-         elem_cnct(-1,0,ne1)=1
-         elem_cnct(1,0,ne1)=1
-         elem_cnct(-1,1,ne1)=ne
-         elem_cnct(1,1,ne1)=ne+ne0
-         nindex=no_gen
-         elem_ordrs(nindex,ne1)=elem_ordrs(nindex,ne_m)
-         nindex=no_sord
-         elem_ordrs(nindex,ne1)=elem_ordrs(nindex,ne_m)
-         nindex=no_hord
-         elem_ordrs(nindex,ne1)=elem_ordrs(nindex,ne_m)
-         elem_field(ne_group,ne1)=1.0_dp!connection between meshes
+          ne=units(nu)
+          cap_term=cap_term+1
+          np1=elem_nodes(2,ne)
+          np2=np_map(np1)
+          noelem0=noelem0+1
+          ne1=ne1+1
+          elems(noelem0)=ne1
+          elem_nodes(1,ne1)=np1
+          elem_nodes(2,ne1)=np2
+          elems_at_node(np1,0)=elems_at_node(np1,0)+1
+          elems_at_node(np1,elems_at_node(np1,0))=ne1
+          elems_at_node(np2,0)=elems_at_node(np2,0)+1
+          elems_at_node(np2,elems_at_node(np2,0))=ne1
+          elem_cnct(1,elem_cnct(1,0,ne)+1,ne)=ne1
+          elem_cnct(1,0,ne)=elem_cnct(1,0,ne)+1
+          elem_cnct(-1,elem_cnct(-1,0,ne+ne_global)+1,ne+ne_global)=ne1
+          elem_cnct(-1,0,ne+ne_global)=elem_cnct(-1,0,ne+ne_global)+1
+          elem_cnct(-1,0,ne1)=1
+          elem_cnct(1,0,ne1)=1
+          elem_cnct(-1,1,ne1)=ne
+          elem_cnct(1,1,ne1)=ne+ne0
+          nindex=no_gen
+          elem_ordrs(nindex,ne1)=elem_ordrs(nindex,ne_m)
+          nindex=no_sord
+          elem_ordrs(nindex,ne1)=elem_ordrs(nindex,ne_m)
+          nindex=no_hord
+          elem_ordrs(nindex,ne1)=elem_ordrs(nindex,ne_m)
+          elem_field(ne_group,ne1)=1.0_dp!connection between meshes
        enddo
-        print *, 'Number of connections', cap_term
-     endif
+       print *, 'Number of connections', cap_term
+    endif
     num_nodes=num_nodes_new
     num_elems=num_elems_new
     deallocate(np_map)
+
     call enter_exit(sub_name,2)
 
   end subroutine add_matching_mesh
 
-!
-!###################################################################################
-!
-!*append_units:* Appends terminal units at the end of a tree structure
-  subroutine append_units()
-  !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_APPEND_UNITS" :: APPEND_UNITS
+!!!#############################################################################
 
+  subroutine append_units()
+    !*append_units:* Appends terminal units at the end of a tree structure
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_APPEND_UNITS" :: APPEND_UNITS
+
+    ! Local parameters
     integer :: ne,ne0,nu
     character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
 
     sub_name = 'append_units'
     call enter_exit(sub_name,1)
 
     num_units = 0
-    DO ne=1,num_elems
-       IF(elem_cnct(1,0,ne).eq.0)THEN
+    do ne=1,num_elems
+       if(elem_cnct(1,0,ne).eq.0)THEN
           num_units=num_units+1
-       ENDIF
-    ENDDO
+       endif
+    enddo
 
     if(allocated(units))then !increasing the array size; just overwrite
        deallocate(units)
@@ -396,13 +417,13 @@ contains
     elem_units_below(1:num_elems) = 0 !initialise the number of terminal units below a branch
 
     nu=0
-    DO ne=1,num_elems
-       IF(elem_cnct(1,0,ne).eq.0)THEN
+    do ne=1,num_elems
+       if(elem_cnct(1,0,ne).eq.0)THEN
           nu=nu+1
           units(nu)=ne     !Set up units array containing terminals
           elem_units_below(ne)=1
-       ENDIF
-    ENDDO
+       endif
+    enddo
 
     ! count the effective number of elements below each branch
     do ne=num_elems,2,-1
@@ -415,25 +436,33 @@ contains
 
   end subroutine append_units
 
-!
-!###################################################################################
-!
-  !*define_1d_elements:* Reads in an 1D element ipelem file to define a geometry
+!!!#############################################################################
+
   subroutine define_1d_elements(ELEMFILE)
-  !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_DEFINE_1D_ELEMENTS" :: DEFINE_1D_ELEMENTS
+    !*define_1d_elements:* Reads in an 1D element ipelem file to define a geometry
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_DEFINE_1D_ELEMENTS" :: DEFINE_1D_ELEMENTS
 
     character(len=MAX_FILENAME_LEN), intent(in) :: ELEMFILE
     !     Local Variables
     integer :: ibeg,iend,ierror,i_ss_end,j,ne,ne_global,&
          nn,np,np1,np2,np_global
     character(LEN=132) :: ctemp1
+    character(len=300) :: readfile
     character(LEN=40) :: sub_string
     character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
 
     sub_name = 'define_1d_elements'
     call enter_exit(sub_name,1)
 
-    open(10, file=ELEMFILE, status='old')
+    if(index(ELEMFILE, ".ipelem")> 0) then !full filename is given
+       readfile = ELEMFILE
+    else ! need to append the correct filename extension
+       readfile = trim(ELEMFILE)//'.ipelem'
+    endif
+
+    open(10, file=readfile, status='old')
 
     read_number_of_elements : do
        read(unit=10, fmt="(a)", iostat=ierror) ctemp1
@@ -463,13 +492,14 @@ contains
     if(allocated(elem_direction)) deallocate(elem_direction)
     allocate(elem_direction(3,num_elems))
     if(model_type.eq.'gas_mix')then
-      if(allocated(expansile)) deallocate(expansile)
-      allocate(expansile(num_elems))
+       if(allocated(expansile)) deallocate(expansile)
+       allocate(expansile(num_elems))
     endif
 
 !!! initialise element arrays
-    elems=0
-    elem_nodes=0
+    elems = 0
+    elem_nodes = 0
+    elem_ordrs = 0  ! where the default is that 0==respiratory and 1==conducting
     elem_symmetry = 1
     elem_field = 0.0_dp
     if(model_type.eq.'gas_mix')expansile = .false.
@@ -513,7 +543,7 @@ contains
     do ne=1,num_elems
        np1=elem_nodes(1,ne)
        np2=elem_nodes(2,ne)
-       elem_field(ne_length,ne) = DSQRT((node_xyz(1,np2) - &
+       elem_field(ne_length,ne) = sqrt((node_xyz(1,np2) - &
             node_xyz(1,np1))**2 + (node_xyz(2,np2) - &
             node_xyz(2,np1))**2 + (node_xyz(3,np2) - &
             node_xyz(3,np1))**2)
@@ -526,31 +556,38 @@ contains
     call element_connectivity_1d
     call evaluate_ordering
 
+    elem_ordrs(no_type,:) = 1 ! 0 for respiratory, 1 for conducting
+
     call enter_exit(sub_name,2)
 
-  END subroutine define_1d_elements
+  end subroutine define_1d_elements
 
-
-!!!##################################################
+!!!#############################################################################
 
   subroutine define_elem_geometry_2d(ELEMFILE,sf_option)
-      !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_DEFINE_ELEM_GEOMETRY_2D" :: DEFINE_ELEM_GEOMETRY_2D
-
     ! Reads in 2D ipelem file.
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_DEFINE_ELEM_GEOMETRY_2D" :: DEFINE_ELEM_GEOMETRY_2D
 
     character(len=*) :: ELEMFILE
     character(len=4) :: sf_option
-    
     !     Local Variables
     integer :: ierror,ne,ne_global,nn,np,number_of_elements
     character(len=132) :: ctemp1,readfile
-    character(len=60) :: sub_name = 'define_elem_geometry_2d'
-    
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'define_elem_geometry_2d'
     call enter_exit(sub_name,1)
-    
-    !readfile = trim(elemfile)//'.ipelem'
-    open(10, file=elemfile, status='old')
-    
+
+    if(index(ELEMFILE, ".ipelem")> 0) then !full filename is given
+       readfile = ELEMFILE
+    else ! need to append the correct filename extension
+       readfile = trim(ELEMFILE)//'.ipelem'
+    endif
+
+    open(10, file=readfile, status='old')
+
     read_number_of_elements : do
        read(unit=10, fmt="(a)", iostat=ierror) ctemp1
        if(index(ctemp1, "elements")> 0) then
@@ -563,18 +600,18 @@ contains
     if(.not.allocated(elems_2d)) allocate(elems_2d(num_elems_2d))
     if(.not.allocated(elem_nodes_2d)) allocate(elem_nodes_2d(4,num_elems_2d))
     if(.not.allocated(elem_versn_2d)) allocate(elem_versn_2d(4,num_elems_2d))
-    
+
     ne = 0
-    
-    read_an_element : do 
+
+    read_an_element : do
        !.......read element number
        read(unit=10, fmt="(a)", iostat=ierror) ctemp1
        if(index(ctemp1, "Element")> 0) then
           ne_global = get_final_integer(ctemp1) !return the final integer
           ne = ne + 1
           elems_2d(ne) = ne_global
-          
-          read_element_nodes : do 
+
+          read_element_nodes : do
              read(unit=10, fmt="(a)", iostat=ierror) ctemp1
              if(index(ctemp1, "global")> 0) then !found the correct line
                 call get_four_nodes(ne,ctemp1) !number of versions for node np
@@ -593,29 +630,35 @@ contains
                 exit read_element_nodes
              endif !index
           end do read_element_nodes
-          
+
           if(ne.ge.number_of_elements) exit read_an_element
        endif
-       
+
     end do read_an_element
-    
+
     close(10)
-    
+
     call element_connectivity_2d
     call line_segments_for_2d_mesh(sf_option)
 
     call enter_exit(sub_name,2)
-    
+
   end subroutine define_elem_geometry_2d
 
-!!!###############################################################
+!!!#############################################################################
 
-!*define_mesh_geometry_test:*
   subroutine define_mesh_geometry_test()
-  !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_DEFINE_MESH_GEOMETRY_TEST" :: DEFINE_MESH_GEOMETRY_TEST
+    !*define_mesh_geometry_test:*
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_DEFINE_MESH_GEOMETRY_TEST" :: DEFINE_MESH_GEOMETRY_TEST
 
     !     Local Variables
     integer :: j,ne,np,np1,np2
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'define_mesh_geometry_test'
+    call enter_exit(sub_name,1)
 
     num_elems = 400
     num_nodes = num_elems + 1
@@ -725,13 +768,13 @@ contains
 
     elem_field(ne_radius,1:100) = 10.0_dp
     elem_field(ne_radius,101:200) = 5.0_dp
-    elem_field(ne_radius,201:400) = dsqrt(elem_field(ne_radius,101)**2/2.0_dp)
+    elem_field(ne_radius,201:400) = sqrt(elem_field(ne_radius,101)**2/2.0_dp)
 
     ! calculate the element lengths and directions
     do ne=1,num_elems
        np1=elem_nodes(1,ne)
        np2=elem_nodes(2,ne)
-       elem_field(ne_length,ne) = DSQRT((node_xyz(1,np2) - &
+       elem_field(ne_length,ne) = sqrt((node_xyz(1,np2) - &
             node_xyz(1,np1))**2 + (node_xyz(2,np2) - &
             node_xyz(2,np1))**2 + (node_xyz(3,np2) - &
             node_xyz(3,np1))**2)
@@ -748,31 +791,39 @@ contains
     call element_connectivity_1d
     call evaluate_ordering
 
-  end subroutine define_mesh_geometry_test
-!
-!###################################################################################
-!
-  subroutine define_node_geometry(NODEFILE)
-  !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_DEFINE_NODE_GEOMETRY" :: DEFINE_NODE_GEOMETRY
+    call enter_exit(sub_name,2)
 
-  !*define_node_geometry:* Reads in an ipnode file to define a tree geometry
+  end subroutine define_mesh_geometry_test
+
+!!!#############################################################################
+
+  subroutine define_node_geometry(NODEFILE)
+    !*define_node_geometry:* Reads in an ipnode file to define a tree geometry
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_DEFINE_NODE_GEOMETRY" :: DEFINE_NODE_GEOMETRY
 
     character(len=MAX_FILENAME_LEN), intent(in) :: NODEFILE !Input nodefile
     !     Local Variables
     integer :: i,ierror,np,np_global,num_nodes_temp,num_versions,nv,NJT=0
-    character(len=300) :: ctemp1,readfile
     real(dp) :: point
-    character(len=60) :: sub_name
     logical :: overwrite = .false. ! initialised
+    character(len=300) :: ctemp1,readfile
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
 
     sub_name = 'define_node_geometry'
     call enter_exit(sub_name,1)
 
-    readfile = trim(nodefile)//'.ipnode'
-    open(10, file=NODEFILE, status='old')
+    if(index(NODEFILE, ".ipnode")> 0) then !full filename is given
+       readfile = NODEFILE
+    else ! need to append the correct filename extension
+       readfile = trim(NODEFILE)//'.ipnode'
+    endif
+
+    open(10, file=readfile, status='old')
 
     if(num_nodes.gt.0) overwrite = .true.
-    
+
     !.....read in the total number of nodes. read each line until one is found
     !.....that has the correct keyword (nodes). then return the integer that is
     !.....at the end of the line
@@ -794,10 +845,10 @@ contains
           exit read_number_of_coords !exit the named do loop
        endif
     end do read_number_of_coords
-    
-    ! note that only the first version of coordinate is currently read in   
-    
-    !.....read the coordinate, derivative, and version information for each node. 
+
+    ! note that only the first version of coordinate is currently read in
+
+    !.....read the coordinate, derivative, and version information for each node.
     np=0
     read_a_node : do !define a do loop name
        !.......read node number
@@ -835,19 +886,18 @@ contains
     end do read_a_node
 
     if(.not.overwrite) num_nodes = num_nodes_temp
-    
+
     close(10)
 
     call enter_exit(sub_name,2)
 
   end subroutine define_node_geometry
 
-!!!##################################################
+!!!#############################################################################
 
   subroutine define_node_geometry_2d(NODEFILE)
+    !*define_node_geometry_2d:* Reads in an ipnode file to define surface nodes
     !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_DEFINE_NODE_GEOMETRY_2D" :: DEFINE_NODE_GEOMETRY_2D
-  
-  !*define_node_geometry_2d:* Reads in an ipnode file to define surface nodes
 
     character(len=*),intent(in) :: NODEFILE
     !     Local Variables
@@ -856,31 +906,34 @@ contains
     integer,parameter :: num_derivs = 3
     character(len=132) :: ctemp1,readfile
     character(len=60) :: sub_name = 'define_node_geometry_2d'
-    
+
     call enter_exit(sub_name,1)
 
-    open(10, file=nodefile, status='old')
+    if(index(NODEFILE, ".ipnode")> 0) then !full filename is given
+       readfile = NODEFILE
+    else ! need to append the correct filename extension
+       readfile = trim(NODEFILE)//'.ipnode'
+    endif
+
+    open(10, file=readfile, status='old')
 
     !.....read in the total number of nodes. read each line until one is found
     !.....that has the correct keyword (nodes). then return the integer that is
     !.....at the end of the line
     read_number_of_nodes : do !define a do loop name
        read(unit=10, fmt="(a)", iostat=ierror) ctemp1 !read a line into ctemp1
-        if(index(ctemp1, "nodes")> 0) then !keyword "nodes" is found in ctemp1
+       if(index(ctemp1, "nodes")> 0) then !keyword "nodes" is found in ctemp1
           num_nodes_2d = get_final_integer(ctemp1) !return the final integer
           exit read_number_of_nodes !exit the named do loop
-        endif
+       endif
     end do read_number_of_nodes
-
-    !write(*,*) 'Number of nodes are:',num_nodes_2d
 
 !!!allocate memory to arrays that require node number
     if(.not.allocated(nodes_2d)) allocate(nodes_2d(num_nodes_2d))
     if(.not.allocated(node_xyz_2d)) allocate(node_xyz_2d(4,10,16,num_nodes_2d))
     if(.not.allocated(node_versn_2d)) allocate(node_versn_2d(num_nodes_2d))
 
-   
-    !.....read the coordinate, derivative, and version information for each node. 
+    !.....read the coordinate, derivative, and version information for each node.
     np=0
     read_a_node : do !define a do loop name
        !.......read node number
@@ -890,18 +943,19 @@ contains
 
           np=np+1
           nodes_2d(np) = np_global
-          
+
           !.......read coordinates
           do i=1,3 ! for the x,y,z coordinates
              num_versions = 0
              read(unit=10, fmt="(a)", iostat=ierror) ctemp1
-             if(index(ctemp1, "versions")> 0) num_versions = get_final_integer(ctemp1)
+             if(index(ctemp1, "versions")> 0) num_versions = &
+                  get_final_integer(ctemp1)
              node_versn_2d(np) = max(1,num_versions) !number of versions for node np
              do nv=1,node_versn_2d(np)
                 if(num_versions > 1)then
                    read(unit=10, fmt="(a)", iostat=ierror) ctemp1 ! "For version number..."
                 endif
-                !...........coordinate          
+                !...........coordinate
                 if(num_versions > 0) read(unit=10, fmt="(a)", iostat=ierror) ctemp1
                 node_xyz_2d(1,nv,i,np) = get_final_real(ctemp1)
                 if(num_derivs.ge.1)then
@@ -928,35 +982,33 @@ contains
        endif !index
        if(np.ge.num_nodes_2d) exit read_a_node
     end do read_a_node
-    
+
     close(10)
-    !write(*,*) 'Here is:',node_xyz_2d(1,1,1,2),nodes_2d(2) 
+
     call enter_exit(sub_name,2)
 
   end subroutine define_node_geometry_2d
 
-
-!!!##################################################
+!!!#############################################################################
 
   subroutine define_data_geometry(datafile)
-  !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_DEFINE_DATA_GEOMETRY" :: DEFINE_DATA_GEOMETRY
+    !*define_data_geometry:* reads data points from a file
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_DEFINE_DATA_GEOMETRY" :: DEFINE_DATA_GEOMETRY
 
-
-!!! read data points from a file
-    
-!!! dummy arguments
     character(len=*) :: datafile
-!!! local variables
+    ! Local variables
     integer :: iend,ierror,length_string,ncount,nj,itemp
     character(len=132) :: buffer,readfile
-    character(len=60) :: sub_name = 'define_data_geometry'
+    character(len=60) :: sub_name
 
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'define_data_geometry'
     call enter_exit(sub_name,1)
-    
 
     !set the counted number of data points to zero
     ncount = 0
-    
+
     !readfile = trim(datafile)//'.ipdata'
     open(10, file=datafile, status='old')
     read(unit=10, fmt="(a)", iostat=ierror) buffer
@@ -985,19 +1037,19 @@ contains
     !set the counted number of data points to zero
     ncount = 0
     read_line_of_data : do
-       
+
        ! read the data #; z; y; z; wd1; wd2; wd3 for each data point
        read(unit=10, fmt="(a)", iostat=ierror) buffer
        if(ierror<0) exit !ierror<0 means end of file
        length_string = len_trim(buffer) !length of buffer, and removed trailing blanks
-       
+
        ! read data number
        buffer=adjustl(buffer) !remove leading blanks
        iend=index(buffer," ",.false.)-1 !index returns location of first blank
        if(length_string == 0) exit
        ncount=ncount+1
        read (buffer(1:iend), '(i6)') itemp
-       
+
        do nj=1,3
           ! read x,y,z coordinates
           buffer = adjustl(buffer(iend+1:length_string)) !remove data number from string
@@ -1006,7 +1058,7 @@ contains
           iend=index(buffer," ",.false.)-1 !index returns location of first blank
           read (buffer(1:iend), '(D25.17)') data_xyz(nj,ncount)
        enddo !nj
-       
+
        do nj=1,3
           !        ! read weightings
           !        buffer = adjustl(buffer(iend+1:length_string)) !remove data number from string
@@ -1016,1213 +1068,1432 @@ contains
           !        read (buffer(1:iend), '(D25.17)') data_weight(nj,ncount)
           data_weight(nj,ncount)=1.0_dp
        enddo !nj
-       
+
     enddo read_line_of_data
-    
+
     close(10)
+
     call enter_exit(sub_name,2)
 
   end subroutine define_data_geometry
-!
-!###################################################################################
 
-  subroutine list_mesh_statistics(filename)
-  !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_LIST_MESH_STATISTICS" :: LIST_MESH_STATISTICS
-
-!     nindex(i) stores the order type (i=1,2,3,4 for generation, Horsfield
-!     order, Strahler order, diameter-defined Strahler order
-!     respectively) for the current element.
-
-    use arrays,only: dp,data_xyz,data_weight,num_data,elem_ordrs,elem_units_below,&
-         node_xyz,num_units
-    use arrays,only: elem_cnct,elem_field,elem_symmetry,num_elems
-    use indices,only: ne_length,ne_radius
-    use diagnostics,only: enter_exit
-    use other_consts,only: PI
-
-    implicit none
-
-     ! Parameters
-     character(len=*),intent(in) :: filename
-
-     ! Local Variables
-
-     real(dp) :: translate(3)
-     real(dp),allocatable :: data_temp(:,:),vertex_xyz(:,:)
-     real(dp) :: boxrange(3),cofm_surfaces(3),offset=-2.0_dp,point_xyz(3)
-     integer :: np0,np1,np2
-
-     integer :: index(4),ntotaln(20)
-     integer, allocatable :: nbranches(:,:)
-     real(dp),allocatable ::  stats(:,:), branches(:,:), std_dev(:,:,:)
-     real(dp),allocatable ::  sum_mean(:,:,:)
-!    real(dp),allocatable ::  n_terminal(:,:,:),ntally(:,:,:)
-     real(dp),allocatable ::  ntally(:,:,:)
-     integer,allocatable ::  n_terminal(:), NORD(:,:)
-
-     real(dp) :: xp1(3), xp2(3), xp3(3), sum_term
-     integer :: i,j,k,nj,nline,nn,num_data_estimate,num_vertices
-     integer :: ne, ne_child
-     logical :: internal
-     character(len=1) :: char1
-     character(len=100) :: writefile
-
-     integer :: ne_flow, N, num_ddp, num_llp
-     integer :: ne0,ne_next,nmax_order,n_order,n_segments,num_in_order(40)
-     integer :: average_term_gen,n_branch,ne1,ne2,ne_major,ne_minor,noelem,NPNE
-     integer :: nbins(5), bins(5), nindex(4)
-     real(dp) :: flow_proportion,mean_diameter,mean_sum_deadspace,mean_sum_pathlength,&
-         ratio_L_D(40),sum_crosssec(40),sum_deadspace,&
-         sum_diameter(40),sum_length(40),sum_pathlength,sum_volume(40),total_length,&
-         max_bin,min_bin
-     real(dp) :: means(20),sdt(20),ratios(4,3),r_squared(4,3)
-     real(dp) :: angle, slope
-
-     real(dp),allocatable :: sizes_from_entry(:,:),diameters(:),lengths(:)
-     real(dp),allocatable :: YREGRESS(:,:)
-     real(dp),parameter :: max_path=310.0_dp,min_path=130.0_dp
-     real(dp),parameter :: max_dead=16.0_dp,min_dead=4.0_dp
-     real(dp),parameter :: undefined = 10000_dp
-
-     integer :: nbin,count_bins(2,100)
-     integer,parameter :: num_bins = 20
-     integer,parameter :: NUM_SCHEMES = 3
-     logical :: add, DIAM_STRAHLER
-     character(len=200) :: opfile
-
-     character(len=60) :: sub_name = 'list_mesh_statistics'
-     call enter_exit(sub_name,1)
-
-     if(.not.allocated(sizes_from_entry)) allocate(sizes_from_entry(2,num_elems))
-     if(.not.allocated(stats)) allocate(stats(21,num_elems))
-     if(.not.allocated(branches)) allocate(branches(10,num_elems))
-
-     if(.not.allocated(sum_mean)) allocate(sum_mean(4,6,num_elems))
-     if(.not.allocated(std_dev)) allocate(std_dev(4,6,num_elems))
-
-! QUESTION FOR MHT - are these still needed ?
-! What is NBJ and NPNE ???
-! MHT, Do we need still have nbranches ?
-! QUESTION: WHat is NMAX_GEN and NUM_SCHEMES ?
-
-     if(.not.allocated(n_terminal)) allocate(n_terminal(num_elems))
-     if(.not.allocated(nbranches)) allocate(nbranches(5,num_elems))
-
-     if(.not.allocated(diameters)) allocate(diameters(num_elems))
-     if(.not.allocated(lengths)) allocate(lengths(num_elems))
-
-     if(.not.allocated(YREGRESS)) allocate(YREGRESS(num_elems,3))
-     if(.not.allocated(ntally)) allocate(ntally(4,6,num_elems))
-
-     sizes_from_entry = 0.0_dp
-
-     num_in_order(:) = 0
-     nmax_order = 0
-     sum_crosssec = 0.0_dp
-     sum_diameter = 0.0_dp
-     sum_length = 0.0_dp
-     sum_volume = 0.0_dp
-     ratio_L_D = 0.0_dp
-
-     n_branch = 0
-     num_ddp = 0
-     num_llp = 0
-
-     do ne = 1,num_elems
-       ne0 = elem_cnct(-1,1,ne)
-       add = .false.
-       if(ne0.eq.0)then !stem of tree
-          add = .true.
-       else if(ne0.ne.0.and.elem_ordrs(2,ne0).ne.elem_ordrs(2,ne))then  !only count as extra branch if at start
-          add = .true.
-       endif
-
-       if(add)then
-          n_branch = n_branch + 1
-          n_order = elem_ordrs(2,ne)
-          nmax_order = max(n_order,nmax_order)
-          num_in_order(n_order) = num_in_order(n_order) + 1
-          ! Add length of all segments along branch, calculate mean diameter
-          n_segments = 1
-          mean_diameter = elem_field(ne_radius,ne) * 2.0_dp
-          total_length = elem_field(ne_length,ne)
-          ne_next=ne
-          do while(elem_cnct(1,0,ne_next).eq.1.and.elem_symmetry(ne_next).eq.1)
-            ne_next = elem_cnct(1,1,ne_next) !next segment
-            total_length = total_length + elem_field(ne_length,ne_next) !sum lengths
-            mean_diameter = mean_diameter  & 
-                     + elem_field(ne_radius,ne_next) * 2.0
-            n_segments = n_segments + 1 !count number of segments in branch
-
-            diameters(ne) = elem_field(ne_radius,ne_next)*2.0
-            lengths(ne) =   elem_field(ne_length,ne_next)
-          enddo
-          mean_diameter = mean_diameter/dble(n_segments)
-
-          ! mean branch diameter
-          sum_diameter(n_order) = sum_diameter(n_order) + mean_diameter
-
-          ! total branch length
-          sum_length(n_order) = sum_length(n_order) + total_length
-
-          ! total branch volume
-          sum_volume(n_order) = sum_volume(n_order) +  & 
-                      total_length*PI*(mean_diameter**2)/4.0
-
-          ! total branch cross-sectional area
-          sum_crosssec(n_order) = sum_crosssec(n_order) +  & 
-                      PI*(mean_diameter**2)/4.0_dp
-
-          ! branch L:D ratio
-          ratio_L_D(n_order) = ratio_L_D(n_order) + total_length/mean_diameter
-
-!! HARI MIGRATED
-!         IF(INDEX(1).GT.1)THEN
-!HBK       nb=NBJ(1,ne)
-           np0=elem_cnct(1,0,ne) !start of parent
-           np1=elem_cnct(1,1,ne) !start node
-           np2=elem_cnct(1,2,ne) !end node
-           DO nj=1,3
-            xp1(nj)=node_xyz(nj,np0)
-            xp2(nj)=node_xyz(nj,np1)
-            xp3(nj)=node_xyz(nj,np2)
-           ENDDO !nj
-           call mesh_angle(angle,xp1,xp2,xp3)
-           stats(2,ne)=angle !temporary storage of angle
-           branches(3,N)=angle*180.d0/PI !store the branching angle to parent
-
-           ntotal=ntotal+1
-           IF(diameters(ne0).GT.0.d0.AND.diameters(ne).GT.0.d0)THEN
-            IF(diameters(ne)/diameters(ne0).LE.1.d0)THEN
-              num_ddp = num_ddp + 1
-            ENDIF
-           ENDIF
-
-           IF(diameters(ne0).GE.4.d0) THEN
-             nbins(1)=nbins(1)+1
-             bins(1)=bins(1)+angle
-           ELSE IF(diameters(ne0).GE.2.d0) THEN
-             nbins(2)=nbins(2)+1
-             bins(2)=bins(2)+angle
-           ELSE IF(diameters(ne0).GE.1.d0) THEN
-             nbins(3)=nbins(3)+1
-             bins(3)=bins(3)+angle
-           ELSE IF(diameters(ne0).GE.0.7d0) THEN
-             nbins(4)=nbins(4)+1
-             bins(4)=bins(4)+angle
-           ENDIF
-!          ELSE
-!            branches(3,N)=undefined
-!          ENDIF
-
-!        ne_next=ne
-!        do while(elem_cnct(1,0,ne_next).eq.1.and.elem_symmetry(ne_next).eq.1)
-
-           stats(5,ne)=lengths(ne)
-           ne_next=ne
-           if(elem_cnct(1,0,ne_next).EQ.1) then
-             ne_next=elem_cnct(1,1,ne_next)
-             stats(5,ne)=stats(5,ne)+lengths(ne_next)
-           endif
-
-          if(elem_cnct(1,0,ne).EQ.0) then
-            n_terminal(1)=n_terminal(1)+1
-          endif
-
-          !CC... Geometric properties of mesh
-          branches(4,N)=undefined !initialise to no rotation angle
-          IF(elem_cnct(-1,0,ne).GT.0.AND.elem_cnct(1,0,ne).GT.1) then
-            ne0=elem_cnct(-1,1,ne)
-            IF(elem_cnct(1,0,ne0).GT.1) then
-              CALL mesh_plane_angle(NBJ,ne,NPNE,angle,XP)
-              branches(4,N)=angle*180.d0/PI !rotation angle
-            ENDIF
-          ENDIF
-
-        endif
-     enddo !ne
-
-!   DO ne=1,num_elems
-!      ne0=elem_cnct(-1,1,ne) !parent
-!      np1=elem_nodes(1,ne)
-!      np2=elem_nodes(2,ne)
-!      if(elem_cnct(1,0,ne).eq.0)then !terminal
-!       elems(ne) = ne_global
-
-
-     !=======================
-     !=======================
-     do noelem = 1,num_elems
-!       ne=NELIST(noelem)
-        ne0=elem_cnct(-1,1,noelem) !parent
-
-        DO j=11,21 !initialise values for the summary statistics
-          stats(j,ne)=undefined
-        ENDDO !j
-        ne0=elem_cnct(-1,1,ne)
-        IF(ne0.NE.0)THEN
-          IF(elem_ordrs(1,ne0).NE.elem_ordrs(1,ne))THEN
-            IF(stats(5,ne)/stats(5,ne0).LE.1.d0)THEN
-              num_llp=num_llp+1
-            ENDIF
-            stats(19,ne)=stats(5,ne)/stats(5,ne0) !L/Lparent
-            IF(diameters(ne0).GT.0.d0.AND.diameters(ne).GT.0.d0)THEN
-              stats(16,ne)=diameters(ne)/diameters(ne0) !D/Dparent
-            ENDIF
-          ENDIF
-        ENDIF
-
-        IF(elem_cnct(1,0,ne).GE.2) THEN !'bifurcations only
-            ne1=elem_cnct(1,1,ne) !first child
-            ne2=elem_cnct(1,2,ne) !second child
-
-            !XX.. Summary statistics
-            IF(stats(6,ne1).LT.undefined &
-                       .AND.stats(6, ne2).LT.undefined)THEN
-              IF(stats(6,ne1).GE.stats(6,ne2))THEN !diameter classification
-                ne_major=ne1
-                ne_minor=ne2
-              ELSE
-                ne_major=ne2
-                ne_minor=ne1
-              ENDIF
-              IF(stats(2,ne_minor).LT.undefined.AND.stats(2,ne_major).LT.undefined)THEN
-                stats(11,ne)=stats(2,ne_minor)*180.d0/PI
-                stats(12,ne)=stats(2,ne_major)*180.d0/PI
-              ENDIF
-
-              IF(diameters(ne_minor).GT.0.d0.AND. &
-                diameters(ne_major).GT.0.d0)THEN
-                stats(13,ne)=stats(5,ne_minor)/diameters(ne_minor) !L/D minor
-                stats(14,ne)=stats(5,ne_major)/diameters(ne_major) !L/D major
-                stats(15,ne)=diameters(ne_minor)/diameters(ne_major) !minor D / major D
-                stats(17,ne)=diameters(ne_minor)/diameters(ne) !minor D / D parent
-                stats(18,ne)=diameters(ne_major)/diameters(ne) !major D / D parent
-              ENDIF
-              IF(stats(5,ne1).LE.stats(5,ne2))THEN !length classification
-                ne_major=ne1
-                ne_minor=ne2
-              ELSE
-                ne_major=ne2
-                ne_minor=ne1
-              ENDIF !length criteria
-              stats(20,ne)=stats(5,ne_major)/stats(5,ne_minor)
-            ENDIF
-
-!!          IF(DOP)THEN
-!!            WRITE(OP_STRING,'('' ne'',I5,''  angle'',F6.2,'
-!!   &          //'''  L/Dmin'',F5.2,''  L/Dmaj'',F5.2)')
-!!   &          ne,stats(2,ne)*180.d0/PI,stats(13,ne),stats(14,ne)
-!!            CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-!!          ENDIF !DOP
-
-        ENDIF !elem_cnct
-      ENDDO !noelem
-      !=======================
-      !=======================
-
-
-      !C -------------------------------------------------------------
-      !C .. Calculate mean branching statistics from values in branches
-      DO N=1,n_branch
-
-        !i : for generations, Horsfield orders, Strahler orders
-        DO i=1,NUM_SCHEMES
-        nindex(i)=nbranches(i,N)
-
-         !.............................................
-         !C... length and diameter
-         DO j=1,2
-           sum_mean(i,j,nindex(i))=sum_mean(i,j,nindex(i))+ &
-             branches(j,N)
-           IF(i.EQ.3.AND.j.EQ.1)THEN
-             IF(nindex(i).NE.nbranches(5,N))THEN !not same as parent 
-               ntally(i,j,nindex(i))=ntally(i,j,nindex(i))+1
-             ENDIF
-           ELSE
-             ntally(i,j,nindex(i))=ntally(i,j,nindex(i))+1
-           ENDIF
-         ENDDO !j
-         !C.. length and diameter
-         !.............................................
-
-
-         !...........................................
-         !CCC. branching angle and rotation angle(j=3,4)
-         DO j=3,4
-           IF(branches(j,N).LT.undefined)THEN
-             sum_mean(i,j,nindex(i))=sum_mean(i,j,nindex(i))+branches(j,N)
-             ntally(i,j,nindex(i))=ntally(i,j,nindex(i))+1
-           ENDIF
-         ENDDO !j
-         !CCC . branching angle and rotation angle 
-         !...........................................
-
-
-         !..........................................
-         !. ratio of L:D (j=5)
-         j=5
-         IF(branches(j,N).LT.undefined)THEN
-           sum_mean(i,j,nindex(i))=sum_mean(i,j,nindex(i))+branches(j,N)
-           ntally(i,j,nindex(i))=ntally(i,j,nindex(i))+1
-         ENDIF
-         !..........................................
-
-         ENDDO !i
-
-         !C.. Summary statistics from branches
-         DO j=3,5 !branching angle, rotation angle, L/D
-           IF(branches(j,N).LT.undefined)THEN
-             means(j-2)=means(j-2)+branches(j,N)
-           ENDIF
-         ENDDO !j
-
-      ENDDO !N
-     !C------------------------------------------------------------
-     !C.Calculate mean branching statistics from values in branches
-
-      DO N=1,GENM
-        DO j=3,5
-          ntotaln(j-2)=ntotaln(j-2)+ntally(1,j,N)
-       ENDDO !j
-      ENDDO !N
-
-      DO N=1,GENM
-        DO i=1,NUM_SCHEMES
-          DO j=1,5
-            IF(ntally(i,j,N).GT.0)THEN
-              sum_mean(i,j,N)=sum_mean(i,j,N)/DBLE(ntally(i,j,N))
-              NMAX_GEN(i)=N
-             ELSE
-              sum_mean(i,j,N)=0.d0
-            ENDIF
-          ENDDO !j
-        ENDDO !i
-      ENDDO !N
-
-      DO N=1,5
-        IF(nbins(N).NE.0)THEN
-          bins(N)=bins(N)/DBLE(nbins(N))*180.d0/PI
-        ENDIF
-      ENDDO !N
-
-       !CC. Summary statistics from branches
-       DO j=3,5 !branching angle, rotation angle, L/D
-         IF(ntotaln(j-2).NE.0)THEN
-           means(j-2)=means(j-2)/DBLE(ntotaln(j-2))
-         ELSE
-           means(j-2)=0.d0
-         ENDIF
-       ENDDO !j
-
-       i=2 !Horsfield orders
-       j=6 !Nw/Nw-1
-       DO N=1,GENM-1
-         IF(ntally(i,1,N).GT.0.AND.ntally(i,1,N+1).GT.0)THEN
-           sum_mean(i,j,N)=DBLE(ntally(i,1,N))/DBLE(ntally(i,1,N+1))
-         ELSE
-           sum_mean(i,j,N)=0.d0
-         ENDIF
-       ENDDO !N
-
-       !CC. Summary statistics from CE
-       DO noelem=1,NELIST(0)
-         ne=NELIST(noelem)
-         DO j=11,21
-           IF(stats(j,ne).LT.undefined)THEN
-             means(j-7)=means(j-7)+stats(j,ne)
-             ntotaln(j-7)=ntotaln(j-7)+1
-           ENDIF
-         ENDDO !j
-       ENDDO !noelem
-
-       DO j=11,21
-         IF(ntotaln(j-7).GT.0)THEN
-           means(j-7)=means(j-7)/DBLE(ntotaln(j-7))
-         ENDIF
-       ENDDO !j
-       !C... End of mean calculation
-       !---------------------------------------
-
-       !!--------------------------------------------------
-       !C... Calculate the standard deviations
-       !C... Sum of (value-mean)^2
-       DO N=1,n_branch
-          DO i=1,NUM_SCHEMES !for generations, Horsfield orders, Strahler orders
-            nindex(i)=nbranches(i,N)
-            DO j=1,5 !length, diameter, branching angle, rotation angle, L/D
-              IF(branches(j,N).LT.undefined)THEN
-                std_dev(i,j,nindex(i))=std_dev(i,j,nindex(i)) &
-                  +(branches(j,N)-sum_mean(i,j,nindex(i)))**2
-              ENDIF
-            ENDDO !j
-          ENDDO !i
-          DO j=3,5 !branching angle, rotation angle, L/D
-            IF(branches(j,N).LT.undefined)THEN
-              sdt(j-2)=sdt(j-2) + &
-                 (branches(j,N)-means(j-2))**2
-            ENDIF
-          ENDDO !j
-       ENDDO !N
-
-       do noelem = 1,num_elems
-          ne=NELIST(noelem)
-          DO j=11,21
-            IF(stats(j,ne).LT.undefined)THEN
-              sdt(j-7)=sdt(j-7)+(stats(j,ne)-means(j-7))**2
-            ENDIF
-          ENDDO !j
-       ENDDO !noelem
-       !!---------------------------------------------------
-
-
-      !!-----------------------------------------------------
-      !CC. SD = sqrt(1/(n-1)*sum)
-      DO N=1,GENM
-         DO i=1,NUM_SCHEMES !for generations, Horsfield orders, Strahler orders
-           DO j=1,5 !length, diameter, branching angle, rotation angle, L/D
-             IF(ntally(i,j,N).GT.1)THEN
-               std_dev(i,j,N)=DSQRT(std_dev(i,j,N)/DBLE(ntally(i,j,N)-1))
-             ELSE
-               std_dev(i,j,N)=0.d0
-             ENDIF
-           ENDDO !j
-         ENDDO !i
-      ENDDO !N
-
-      DO j=1,13
-        IF(ntotaln(j).GT.1)THEN
-          sdt(j)=DSQRT(sdt(j)/DBLE(ntotaln(j)-1))
-        ENDIF
-      ENDDO !j
-      !CCC...... End of standard deviation calculation
-      !----------------------------------------------------
-
-
-
-     opfile = trim(filename)//'.opmesh'
-     open(10, file=opfile, status='replace')
-
-     write(*,'(/'' Horsfield   #branches     Length     Diameter    ratio L:D    Volume   CrossSecArea'')')
-     write(*,'(''   order                    (mm)        (mm)                     (mL)      (cm^2)'')')
-     write(10,'(/'' Horsfield   #branches     Length     Diameter    ratio L:D    Volume   CrossSecArea'')')
-     write(10,'(''   order                    (mm)        (mm)                     (mL)      (cm^2)'')')
-
-     do n_order = 1,nmax_order
-       write(*,'(i6,i12,f14.2,f12.2,f12.2,f12.2,f12.2)') &
-            n_order,&
-            num_in_order(n_order),&
-            sum_length(n_order)/dble(num_in_order(n_order)),&
-            sum_diameter(n_order)/dble(num_in_order(n_order)),&
-            ratio_L_D(n_order)/dble(num_in_order(n_order)), &
-            sum_volume(n_order)/1.0e+3_dp,&
-            sum_crosssec(n_order)/100.0_dp
-
-       write(10,'(i6,i12,f14.2,f12.2,f12.2,f12.2,f12.2)') &
-            n_order,&
-            num_in_order(n_order),&
-            sum_length(n_order)/dble(num_in_order(n_order)),&
-            sum_diameter(n_order)/dble(num_in_order(n_order)),&
-            ratio_L_D(n_order)/dble(num_in_order(n_order)), &
-            sum_volume(n_order)/1.0e+3_dp,&
-            sum_crosssec(n_order)/100.0_dp
-     enddo
-
-
-       sum_term = 0
-       average_term_gen = 0
-       !=======
-       i=1
-       !=======
-       DO N=1,NMAX_GEN(i)
-          WRITE(10,'(3(I10),5(F8.2,'' ('',F6.2,'')''))') &
-            N,ntally(i,1,N),n_terminal(N),&
-            sum_mean(i,1,N),std_dev(i,1,N), &
-            sum_mean(i,2,N),std_dev(i,2,N),&
-            sum_mean(i,3,N),std_dev(i,3,N),&
-            sum_mean(i,4,N),std_dev(i,4,N),&
-            sum_mean(i,5,N),std_dev(i,5,N)
-
-!         CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-          average_term_gen=average_term_gen + n_terminal(N)*N
-          sum_term=sum_term + n_terminal(N)
-        ENDDO
-        IF(SUM_TERM.GT.0)THEN
-          average_term_gen=average_term_gen/DBLE(sum_term)
-        ELSE
-          average_term_gen=0.d0
-        ENDIF
-
-        WRITE(10,'(/''Horsfield   #branches  Length  Diameter  Branching  Rotation  ratio L:D   Nw/Nw-1'')')
-!       CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-
-        WRITE(10,'('' order   (mm)   (mm)  angle(deg)   angle(deg)'')')
-!       CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-
-        WRITE(10,'(115(''-''))')
-!       CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-
-        !=======
-        i=2
-        !=======
-        DO N=1,NMAX_GEN(i)
-          WRITE(10,'(2(I10),5(F8.2,'' ('',F6.2,'')''),F8.2)') &
-            N,ntally(2,1,N), &
-            sum_mean(i,1,N),std_dev(i,1,N), &
-            sum_mean(i,2,N),std_dev(i,2,N), &
-            sum_mean(i,3,N),std_dev(i,3,N), &
-            sum_mean(i,4,N),std_dev(i,4,N), &
-            sum_mean(i,5,N),std_dev(i,5,N), &
-            sum_mean(i,6,N)
-        ENDDO
-
-        WRITE(10,*) 'Strahler  #branches   Length   Diameter  Branching  Rotation  ratio L:D'
-!       CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-        WRITE(10,*) ' order  (mm)   (mm)  angle(deg)  angle(deg)'
-!       CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-        WRITE(10,*) '------------------------------------------'
-!       CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-
-        !=======
-        i=3
-        !=======
-        DO N=1,NMAX_GEN(i)
-          WRITE(*,'(2(I10),5(F8.2,'' ('',F6.2,'')''))') &
-            N,ntally(3,1,N),&
-            sum_mean(i,1,N),std_dev(i,1,N),&
-            sum_mean(i,2,N),std_dev(i,2,N),&
-            sum_mean(i,3,N),std_dev(i,3,N),&
-            sum_mean(i,4,N),std_dev(i,4,N),&
-            sum_mean(i,5,N),std_dev(i,5,N)
-        ENDDO  
-        
-
-        !---------------------------------------------------
-        IF(DIAM_STRAHLER) THEN
-          WRITE(10,*)  &
-            'Diam-Def  Strahler  #branches   Length  Diameter  Branching   Rotation  ratio  L:D'
-!         CALL WRITES(IOFI,OP_STRING)
-          WRITE(10,*) 'order    (mm)    (mm)   angle(deg)   angle(deg)'
-!         CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-
-          WRITE(10,'(115(''-''))')
-!         CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-          
-          i=4
-          DO N=1,NMAX_GEN(i)
-            WRITE(10,'(2(I10),5(F8.2,'' ('',F6.2,'')''))') &
-              N,ntally(i,1,N), &
-              sum_mean(i,1,N),std_dev(i,1,N), &
-              sum_mean(i,2,N),std_dev(i,2,N), &
-              sum_mean(i,3,N),std_dev(i,3,N), &
-              sum_mean(i,4,N),std_dev(i,4,N), &
-              sum_mean(i,5,N),std_dev(i,5,N)
-!           CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-          ENDDO            
-        ENDIF !DIAM_STRAHLER
-        !---------------------------------------------------
-        
-        !-------------------------------------------------
-        DO i=2,NUM_SCHEMES !Horsfield and Strahler orders
-         DO N=1,NMAX_GEN(i)
-          X(N)=N
-          YREGRESS(N,1)=DLOG10(DBLE(ntally(i,1,N)))
-          YREGRESS(N,2)=DLOG10(sum_mean(i,1,N))
-          YREGRESS(N,3)=DLOG10(sum_mean(i,2,N))
-         ENDDO !N
-         DO j=1,3 !number of branches, length, diameter
-!          CALL LINREGRESS(NMAX_GEN(i),r_squared(i,j),slope,X,YREGRESS(1,j))
-           CALL linear_regression(NMAX_GEN(i),r_squared(i,j),slope,X,YREGRESS(1,j))
-           ratios(i,j)=10.d0**DABS(slope)
-         ENDDO !j
-        ENDDO !i
-        !----------------------------------------------------
-
-       write(10,*) 'terminal generation  =', average_term_gen
-       write(10,*) 'branching angle  =', means(1),sdt(1)
-       write(10,*) 'rotation angle  =', means(2),sdt(2)
-       write(10,*) 'minor angle  =', means(4),sdt(4)
-       write(10,*) 'major angle  =', means(5),sdt(5)
-       write(10,*) 'L/D ratio  =', means(3),sdt(3)
-       write(10,*) 'L/D minor ratio  =', means(6),sdt(6)
-       write(10,*) 'L/D major ratio  =', means(7),sdt(7)
-       write(10,*) 'minorD/majorD=', means(8),sdt(8)
-       write(10,*) 'D/Dparent=', means(9),sdt(9)
-       write(10,*) '%D/Dparent<1 =', DBLE(num_ddp)/DBLE(ntotal)*100.d0
-       write(10,*) 'Dmin/Dparent =', means(10),sdt(10)
-       write(10,*) 'Dmax/Dparent =', means(11),sdt(11)
-       write(10,*) 'L/Lp =', means(12),sdt(12)
-       write(10,*) '%L/Lp<1 =', DBLE(num_llp)/DBLE(NELIST(0)-1)*100.d0
-       write(10,*) 'L1/L2 (L1 < L2) =', means(13),sdt(13)
-
-!          ' branching angle      = '',F7.3,'' ('',F6.3,'')'','
-!          ' rotation angle       = '',F7.3,'' ('',F6.3,'')'','
-!          ' minor angle          = '',F7.3,'' ('',F6.3,'')'','
-!          ' major angle          = '',F7.3,'' ('',F6.3,'')'','
-!          ' L/D                  = '',F7.3,'' ('',F6.3,'')'','
-!          ' L/D minor child      = '',F7.3,'' ('',F6.3,'')'','
-!          ' L/D major child      = '',F7.3,'' ('',F6.3,'')'','
-!          ' minor D/major D      = '',F7.3,'' ('',F6.3,'')'','
-!          ' D/Dparent            = '',F7.3,'' ('',F6.3,'')'','
-!          ' %D/Dparent  < 1      = '',F7.3,'
-!          ' Dmin/Dparent         = '',F7.3,'' ('',F6.3,'')'','
-!          ' Dmaj/Dparent         = '',F7.3,'' ('',F6.3,'')'','
-!          ' L/Lp                 = '',F7.3,'' ('',F6.3,'')'','
-!          ' %L/Lp < 1            = '',F7.3,'
-!          ' L1/L2 (L1 < L2)      = '',F7.3,'' ('',F6.3,'')'')')
-!          average_term_gen,means(1),sdt(1),&
-!          means(2),sdt(2),&
-!          means(4),sdt(4),&
-!          means(5),sdt(5),&
-!          means(3),sdt(3),means(6),sdt(6),&
-!          means(7),sdt(7),means(8),sdt(8),means(9),sdt(9),&
-!          DBLE(num_ddp)/DBLE(ntotal)*100.d0,means(10),sdt(10),&
-!          means(11),sdt(11),&
-!          means(12),sdt(12),&
-!          DBLE(num_llp)/DBLE(NELIST(0)-1)*100.d0,&
-!          means(13),sdt(13)
-
-!       CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-
-        WRITE(10,*) ' Rb Horsfield    = ',ratios(2,1),r_squared(2,1)
-        WRITE(10,*) ' Rl Horsfield    = ',ratios(2,2),r_squared(2,2)
-        WRITE(10,*) ' Rd Horsfield    = ',ratios(2,3),r_squared(2,3)
-        WRITE(10,*) ' Rb Strahler    = ',ratios(3,1),r_squared(3,1)
-        WRITE(10,*) ' Rl Strahler    = ',ratios(3,2),r_squared(3,2)
-        WRITE(10,*) ' Rd Strahler    = ',ratios(3,3),r_squared(3,3)
-
-!       WRITE(OP_STRING,'('' Rb Strahler    = '',F7.3,'
-!    '    //''' Rsq ='',F6.3,'//
-!    '    '/'' Rl Strahler          = '',F7.3,'' Rsq = '',F6.3,'//
-!    '    '/'' Rd Strahler          = '',F7.3,'' Rsq = '',F6.3,'//
-!    '    '/'' Rb Horsfield         = '',F7.3,'' Rsq = '',F6.3,'//
-!    '    '/'' Rl Horsfield         = '',F7.3,'' Rsq = '',F6.3,'//
-!    '    '/'' Rd Horsfield         = '',F7.3,'' Rsq = '',F6.3)')
-!    '    ratios(3,1),r_squared(3,1),ratios(3,2),r_squared(3,2),
-!         ratios(3,3),r_squared(3,3),&
-!         ratios(2,1),r_squared(2,1),&
-!         ratios(2,2),r_squared(2,2),&
-!         ratios(2,3),r_squared(2,3)
-
-! CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-
-        IF(DIAM_STRAHLER) THEN
-         write(10,*) 'Rb diam-def Strahler=',ratios(4,1),'Rsq=',r_squared(4,1)
-         write(10,*) 'Rl diam-def Strahler=',ratios(4,2),'Rsq=',r_squared(4,2)
-         write(10,*) 'Rd diam-def Strahler=',ratios(4,3),'Rsq=',r_squared(4,3)
-!         WRITE(OP_STRING,
-!    &      '('' Rb diam-def Strahler  ='',F7.3,'' Rsq = '',F6.3,'//
-!    &      '/'' Rl diam-def Strahler  ='',F7.3,'' Rsq = '',F6.3,'//
-!    &      '/'' Rd diam-def Strahler  ='',F7.3,'' Rsq = '',F6.3)')
-!    &      ratios(4,1),r_squared(4,1),&
-!           ratios(4,2),r_squared(4,2),&
-!           ratios(4,3),r_squared(4,3)
-!         CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-        ENDIF
-
-        WRITE(10,*) 'mean angle Dp 4.0+   = ',bins(1)
-        WRITE(10,*) 'mean angle Dp 3.0+   = ',bins(2)
-        WRITE(10,*) 'mean angle Dp 2.0+   = ',bins(3)
-        WRITE(10,*) 'mean angle Dp 1.0+   = ',bins(4)
-        WRITE(10,*) 'mean angle Dp 0.7+   = ',bins(5)
-
-!       WRITE(OP_STRING,'('' mean angle Dp 4.0+   = '',F7.3,'//
-!    &    '/''  mean angle Dp 3.0+   = '',F7.3,'//
-!    &    '/''  mean angle Dp 2.0+   = '',F7.3,'//
-!    &    '/''  mean angle Dp 1.0+   = '',F7.3,'//
-!    &    '/''  mean angle Dp 0.7+   = '',F7.3)')
-!    '    (bins(j),j=1,5)
-
-
-     write(*,'('' Total anatomical dead space = '',f8.2, '' mL'')') &
-            sum(sum_volume)/1.0e+3_dp*3.0_dp/2.0_dp
-
-     mean_sum_pathlength = 0.0_dp
-     mean_sum_deadspace = 0.0_dp
-
-     count_bins = 0
-
-     do ne = 1,num_elems
-       if(elem_cnct(1,0,ne).eq.0)then !terminal
-          sum_pathlength = elem_field(ne_length,ne)
-!!        sum_deadspace = elem_field(ne_vol,ne)
-!!        flow_proportion = 1.0_dp
-          ne0 = elem_cnct(-1,1,ne)
-          ne_child = ne
-          do while (ne0.ne.0) !while not the stem
-             sum_pathlength = sum_pathlength + elem_field(ne_length,ne0)
-!!           flow_proportion = flow_proportion * elem_field(ne_flow,ne_child)/ &
-!!                elem_field(ne_flow,ne0)
-!!           sum_deadspace = sum_deadspace + elem_field(ne_vol,ne0) * flow_proportion
-             ne_child = ne0
-             ne0 = elem_cnct(-1,1,ne0)
-          enddo !while not the stem
-
-          mean_sum_pathlength = mean_sum_pathlength + sum_pathlength
-          mean_sum_deadspace = mean_sum_deadspace + sum_deadspace
-          do nbin = 1,num_bins
-             min_bin = min_path+(nbin-1)*(max_path-min_path)/num_bins
-             max_bin = min_path+nbin*(max_path-min_path)/num_bins
-             if(sum_pathlength.gt.min_bin.and.sum_pathlength.le.max_bin) count_bins(1,nbin) = count_bins(1,nbin)+1
-             min_bin = min_dead+(nbin-1)*(max_dead-min_dead)/num_bins
-             max_bin = min_dead+nbin*(max_dead-min_dead)/num_bins
-             if(sum_deadspace.gt.min_bin.and.sum_deadspace.le.max_bin) count_bins(2,nbin) = count_bins(2,nbin)+1
-          enddo
-       endif !terminal
-     enddo !ne
-     mean_sum_pathlength = mean_sum_pathlength/elem_units_below(1)
-     mean_sum_deadspace = mean_sum_deadspace/elem_units_below(1)
-
-     write(*,'('' Mean pathlength to acinus = '',f8.2, '' mm; ['',f8.2,''-'',f8.2,'']'')') &
-         mean_sum_pathlength,min_path,max_path
-     write(*,'('' Mean deadspace to acinus  = '',f8.2, '' mL; ['',f8.2,''-'',f8.2,'']'')') &
-         mean_sum_deadspace/1.0+3_dp,min_dead/1.0+3_dp,max_dead/1.0+3_dp
-
-
-     write(*,'(''........................... '')')
-     write(*,'('' N_bin     N_PL_bin    N_Vd_bin'')')
-     do nbin = 1,num_bins
-       write(*,'(i4,i12,i12)') nbin,count_bins(1,nbin),count_bins(2,nbin)
-     enddo
-
-     close(10)
-     deallocate(sizes_from_entry)
-     deallocate(stats)
-     deallocate(branches)
-
-  end subroutine list_mesh_statistics
-
-
-! 
-  subroutine triangles_from_surface(num_triangles,num_vertices,surface_elems,triangle,vertex_xyz)
-      
-     !#This subroutine is called by make_data_grid subroutine.
-     !#Application: to grow a grid in 2D surface.
-     
-     integer,intent(in) :: surface_elems(:)
-     integer,allocatable :: triangle(:,:)
-     real(dp),allocatable :: vertex_xyz(:,:)
-     integer,parameter :: ndiv = 3
-     integer :: i,j,ne,num_surfaces,num_triangles,num_tri_vert,num_vertices
-     integer :: index1,index2,nmax_1,nmax_2,step_1,step_2,nvertex_row
-     real(dp) :: X(3),xi(3)
-     character(len=3) :: repeat
-     logical :: four_nodes
-     character(len=60) :: sub_name = 'triangles_from_surface'
-     call enter_exit(sub_name,1)
-     
-     if(.not.allocated(triangle)) allocate(triangle(3,2*num_elems_2d*ndiv**2))
-     if(.not.allocated(vertex_xyz)) allocate(vertex_xyz(3,num_elems_2d*(ndiv+1)**2))
-     triangle = 0
-     vertex_xyz = 0.0_dp
-     num_surfaces = count(surface_elems.ne.0)
-     num_triangles = 0
-     num_vertices = 0
-     num_tri_vert = 0 
-
-
-     do ne=1,num_elems_2d
-        four_nodes = .false.
-        repeat = '0_0'
-        if(elem_nodes_2d(1,ne).eq.elem_nodes_2d(2,ne)) repeat = '1_0'
-        if(elem_nodes_2d(1,ne).eq.elem_nodes_2d(3,ne)) repeat = '2_0'
-        if(elem_nodes_2d(2,ne).eq.elem_nodes_2d(4,ne)) repeat = '2_1'
-        if(elem_nodes_2d(3,ne).eq.elem_nodes_2d(4,ne)) repeat = '1_1'
-
-        select case(repeat)
-        case ('0_0')
-        
-           nmax_1 = ndiv+1 ! ndiv+1 vertices in xi1 direction
-           step_1 = 0      ! # of vertices in xi1 is constant
-           nmax_2 = ndiv+1 ! ndiv+1 vertices in xi2 direction
-           step_2 = 0      ! # of vertices in xi2 is constant
-           index1 = 1
-           index2 = 2
-           four_nodes = .true.
-
-        case ('1_0')
-               
-           nmax_1 = 1      ! start with 1 vertex in xi1 direction
-           step_1 = 1      ! increase # of vertices in xi1 with each step in xi2
-           nmax_2 = ndiv+1 ! ndiv+1 vertices in xi2 direction
-           step_2 = 0      ! # of vertices in xi2 is constant
-           index1 = 1
-           index2 = 2
-
-        case ('1_1')
-
-           nmax_1 = ndiv+1 ! start with ndiv+1 vertices in xi1 direction
-           step_1 = -1     ! decrease # of vertices in xi1 with each step in xi2
-           nmax_2 = ndiv+1 ! ndiv+1 vertices in xi2 direction
-           step_2 = 0      ! # of vertices in xi2 is constant
-           index1 = 1
-           index2 = 2
-
-        case ('2_0')
-
-           nmax_2 = ndiv+1 ! ndiv+1 vertices in xi1 direction
-           step_2 = 0      ! # of vertices in xi1 is constant
-           nmax_1 = 1      ! start with 1 vertex in xi2 direction
-           step_1 = 1      ! increase # of vertices in xi2 with each step in xi1          
-           index2 = 1
-           index1 = 2
-
-        case ('2_1')
-
-           nmax_2 = ndiv+1 ! ndiv+1 vertices in xi1 direction
-           step_2 = 0      ! # of vertices in xi1 is constant
-           nmax_1 = ndiv+1 ! start with ndiv+1 vertices in xi2 direction
-           step_1 = -1     ! decrease # of vertices in xi2 with each step in xi1
-           index2 = 1
-           index1 = 2
-        end select
-
-        xi(index2) = 0.0_dp
-        do i = 1,nmax_2
-           xi(index1) = 0.0_dp
-           do j = 1,nmax_1
-              num_vertices = num_vertices + 1
-              X = coord_at_xi(ne,xi,'hermite')
-              vertex_xyz(1:3,num_vertices) = X(1:3)
-              if(nmax_1.gt.1) xi(index1) = xi(index1) + 1.0_dp/(nmax_1-1)
-              if(i.gt.1.and.j.gt.1)then
-                 num_triangles = num_triangles + 1
-                 triangle(1,num_triangles) = num_vertices
-                 triangle(2,num_triangles) = num_vertices-1
-                 triangle(3,num_triangles) = nvertex_row+j-1
-                 if(four_nodes.or.(.not.four_nodes.and.j.lt.nmax_1).or.step_1.eq.-1)then
-                    num_triangles = num_triangles + 1
-                    triangle(1,num_triangles) = num_vertices
-                    triangle(2,num_triangles) = nvertex_row+j
-                    triangle(3,num_triangles) = nvertex_row+j-1
-                 endif
-                 if(step_1.eq.-1.and.j.eq.nmax_1)then
-                    num_triangles = num_triangles + 1
-                    triangle(1,num_triangles) = num_vertices
-                    triangle(2,num_triangles) = nvertex_row+j+1
-                    triangle(3,num_triangles) = nvertex_row+j
-                 endif
-              else if(step_1.eq.-1.and.i.eq.nmax_2.and.j.eq.1)then
-                      num_triangles = num_triangles + 1
-                      triangle(1,num_triangles) = num_vertices
-                      triangle(2,num_triangles) = num_vertices-1
-                      triangle(3,num_triangles) = num_vertices-2
-              endif
-           enddo !j
-           nvertex_row = num_vertices-nmax_1 !record first vertex # in previous row
-           if(nmax_2.gt.1) xi(index2) = xi(index2) + 1.0_dp/(nmax_2-1)
-           nmax_1 = nmax_1 + step_1
+!!!#############################################################################
+
+  subroutine triangles_from_surface(num_triangles,num_vertices,surface_elems, &
+       triangle,vertex_xyz)
+    !*triangles_from_surface:* generates a linear surface mesh of triangles
+    ! from an existing high order surface mesh.
+
+    integer :: num_triangles,num_vertices
+    integer,intent(in) :: surface_elems(:)
+    integer,allocatable :: triangle(:,:)
+    real(dp),allocatable :: vertex_xyz(:,:)
+    ! Local variables
+    integer,parameter :: ndiv = 3
+    integer :: i,index1,index2,j,ne,nmax_1,nmax_2,num_surfaces, &
+         num_tri_vert,nvertex_row,step_1,step_2
+    real(dp) :: X(3),xi(3)
+    logical :: four_nodes
+    character(len=3) :: repeat
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'triangles_from_surface'
+    call enter_exit(sub_name,1)
+
+    if(.not.allocated(triangle)) allocate(triangle(3,2*num_elems_2d*ndiv**2))
+    if(.not.allocated(vertex_xyz)) allocate(vertex_xyz(3,num_elems_2d*(ndiv+1)**2))
+    triangle = 0
+    vertex_xyz = 0.0_dp
+    num_surfaces = count(surface_elems.ne.0)
+    num_triangles = 0
+    num_vertices = 0
+    num_tri_vert = 0
+
+    do ne=1,num_elems_2d
+       four_nodes = .false.
+       repeat = '0_0'
+       if(elem_nodes_2d(1,ne).eq.elem_nodes_2d(2,ne)) repeat = '1_0'
+       if(elem_nodes_2d(1,ne).eq.elem_nodes_2d(3,ne)) repeat = '2_0'
+       if(elem_nodes_2d(2,ne).eq.elem_nodes_2d(4,ne)) repeat = '2_1'
+       if(elem_nodes_2d(3,ne).eq.elem_nodes_2d(4,ne)) repeat = '1_1'
+
+       select case(repeat)
+       case ('0_0')
+
+          nmax_1 = ndiv+1 ! ndiv+1 vertices in xi1 direction
+          step_1 = 0      ! # of vertices in xi1 is constant
+          nmax_2 = ndiv+1 ! ndiv+1 vertices in xi2 direction
+          step_2 = 0      ! # of vertices in xi2 is constant
+          index1 = 1
+          index2 = 2
+          four_nodes = .true.
+
+       case ('1_0')
+
+          nmax_1 = 1      ! start with 1 vertex in xi1 direction
+          step_1 = 1      ! increase # of vertices in xi1 with each step in xi2
+          nmax_2 = ndiv+1 ! ndiv+1 vertices in xi2 direction
+          step_2 = 0      ! # of vertices in xi2 is constant
+          index1 = 1
+          index2 = 2
+
+       case ('1_1')
+
+          nmax_1 = ndiv+1 ! start with ndiv+1 vertices in xi1 direction
+          step_1 = -1     ! decrease # of vertices in xi1 with each step in xi2
+          nmax_2 = ndiv+1 ! ndiv+1 vertices in xi2 direction
+          step_2 = 0      ! # of vertices in xi2 is constant
+          index1 = 1
+          index2 = 2
+
+       case ('2_0')
+
+          nmax_2 = ndiv+1 ! ndiv+1 vertices in xi1 direction
+          step_2 = 0      ! # of vertices in xi1 is constant
+          nmax_1 = 1      ! start with 1 vertex in xi2 direction
+          step_1 = 1      ! increase # of vertices in xi2 with each step in xi1
+          index2 = 1
+          index1 = 2
+
+       case ('2_1')
+
+          nmax_2 = ndiv+1 ! ndiv+1 vertices in xi1 direction
+          step_2 = 0      ! # of vertices in xi1 is constant
+          nmax_1 = ndiv+1 ! start with ndiv+1 vertices in xi2 direction
+          step_1 = -1     ! decrease # of vertices in xi2 with each step in xi1
+          index2 = 1
+          index1 = 2
+       end select
+
+       xi(index2) = 0.0_dp
+       do i = 1,nmax_2
+          xi(index1) = 0.0_dp
+          do j = 1,nmax_1
+             num_vertices = num_vertices + 1
+             X = coord_at_xi(ne,xi,'hermite')
+             vertex_xyz(1:3,num_vertices) = X(1:3)
+             if(nmax_1.gt.1) xi(index1) = xi(index1) + 1.0_dp/(nmax_1-1)
+             if(i.gt.1.and.j.gt.1)then
+                num_triangles = num_triangles + 1
+                triangle(1,num_triangles) = num_vertices
+                triangle(2,num_triangles) = num_vertices-1
+                triangle(3,num_triangles) = nvertex_row+j-1
+                if(four_nodes.or.(.not.four_nodes.and.j.lt.nmax_1).or.step_1.eq.-1)then
+                   num_triangles = num_triangles + 1
+                   triangle(1,num_triangles) = num_vertices
+                   triangle(2,num_triangles) = nvertex_row+j
+                   triangle(3,num_triangles) = nvertex_row+j-1
+                endif
+                if(step_1.eq.-1.and.j.eq.nmax_1)then
+                   num_triangles = num_triangles + 1
+                   triangle(1,num_triangles) = num_vertices
+                   triangle(2,num_triangles) = nvertex_row+j+1
+                   triangle(3,num_triangles) = nvertex_row+j
+                endif
+             else if(step_1.eq.-1.and.i.eq.nmax_2.and.j.eq.1)then
+                num_triangles = num_triangles + 1
+                triangle(1,num_triangles) = num_vertices
+                triangle(2,num_triangles) = num_vertices-1
+                triangle(3,num_triangles) = num_vertices-2
+             endif
+          enddo !j
+          nvertex_row = num_vertices-nmax_1 !record first vertex # in previous row
+          if(nmax_2.gt.1) xi(index2) = xi(index2) + 1.0_dp/(nmax_2-1)
+          nmax_1 = nmax_1 + step_1
        enddo !i
-     end do
+    enddo
 
-     write(*,'('' Made'',I8,'' triangles to cover'',I6,'' surface elements'')') &
-           num_triangles,num_elems_2d
+    write(*,'('' Made'',I8,'' triangles to cover'',I6,'' surface elements'')') &
+         num_triangles,num_elems_2d
 
-     call enter_exit(sub_name,2)
-  
+    call enter_exit(sub_name,2)
+
   end subroutine triangles_from_surface
 
-! 
-!###################################################################################
-! 
+!!!#############################################################################
+
   subroutine make_data_grid(surface_elems,spacing,to_export,filename,groupname)
-  !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_MAKE_DATA_GRID" :: MAKE_DATA_GRID
+    !*make_data_grid:* makes a regularly-spaced 3D grid of data points to
+    ! fill a bounding surface
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_MAKE_DATA_GRID" :: MAKE_DATA_GRID
 
-     ! Parameters
-     integer,intent(in) :: surface_elems(:)
-     real(dp),intent(in) :: spacing
-     logical,intent(in) :: to_export
-     character(len=*),intent(in) :: filename
-     character(len=*),intent(in) :: groupname
+    integer,intent(in) :: surface_elems(:)
+    real(dp),intent(in) :: spacing
+    logical,intent(in) :: to_export
+    character(len=*),intent(in) :: filename
+    character(len=*),intent(in) :: groupname
+    ! Local Variables
+    integer :: i,j,k,ne,nj,nline,nn,num_data_estimate,num_triangles,num_vertices
+    integer,allocatable :: triangle(:,:)
+    real(dp) :: cofm_surfaces(3),boxrange(3),max_bound(3),min_bound(3), &
+         offset=-2.0_dp,point_xyz(3),scale_mesh,translate(3)
+    real(dp),allocatable :: data_temp(:,:),vertex_xyz(:,:)
+    logical :: internal
+    character(len=1) :: char1
+    character(len=100) :: writefile
+    character(len=60) :: sub_name
 
-     ! Local Variables
-     real(dp) :: max_bound(3),min_bound(3),scale_mesh,translate(3)
-     integer,allocatable :: triangle(:,:)
-     real(dp),allocatable :: data_temp(:,:),vertex_xyz(:,:)
-     real(dp) :: boxrange(3),cofm_surfaces(3),offset=-2.0_dp,point_xyz(3)
-     integer :: i,j,k,ne,nj,nline,nn,num_data_estimate,num_triangles,num_vertices
-     logical :: internal
-     character(len=1) :: char1
-     character(len=100) :: writefile
-     character(len=60) :: sub_name = 'make_data_grid'
+    ! --------------------------------------------------------------------------
 
-     call enter_exit(sub_name,1)
+    sub_name = 'make_data_grid'
+    call enter_exit(sub_name,1)
 
-     call triangles_from_surface(num_triangles,num_vertices,surface_elems,triangle,vertex_xyz)
+    call triangles_from_surface(num_triangles,num_vertices,surface_elems, &
+         triangle,vertex_xyz)
 
-     if(offset.gt.0.0_dp)then
-   !!! generate within a scaled mesh, then return to original size afterwards
-   !!! this option is used when we don't want the seed points too close to the boundary
+    if(offset.gt.0.0_dp)then
+!!! generate within a scaled mesh, then return to original size afterwards
+!!! this option is used when we don't want the seed points too close to the boundary
        scale_mesh = 1.0_dp-(offset/100.0_dp)
        cofm_surfaces = sum(vertex_xyz,dim=2)/size(vertex_xyz,dim=2)
        translate = cofm_surfaces * (scale_mesh - 1.0_dp)
-       forall (i=1:num_vertices) vertex_xyz(1:3,i) = vertex_xyz(1:3,i)*scale_mesh + translate(1:3)
-     endif
+       forall (i=1:num_vertices) vertex_xyz(1:3,i) = &
+            vertex_xyz(1:3,i)*scale_mesh + translate(1:3)
+    endif
 
-  !!! find the bounding coordinates for the surface mesh
+!!! find the bounding coordinates for the surface mesh
 
-     min_bound = minval(vertex_xyz,2)
-     max_bound = maxval(vertex_xyz,2)
-     boxrange = max_bound - min_bound
-     num_data_estimate = int(dble((boxrange(1)/spacing+1.0_dp) * &
-                         (boxrange(2)/spacing+1.0_dp) * (boxrange(3))/spacing+1.0_dp) * &
-                         volume_internal_to_surface(triangle,vertex_xyz)/(boxrange(1)*boxrange(2)*boxrange(3)))
+    min_bound = minval(vertex_xyz,2)
+    max_bound = maxval(vertex_xyz,2)
+    boxrange = max_bound - min_bound
+    num_data_estimate = int(dble((boxrange(1)/spacing+1.0_dp) * &
+         (boxrange(2)/spacing+1.0_dp) * (boxrange(3))/spacing+1.0_dp) * &
+         volume_internal_to_surface(triangle,vertex_xyz)/ &
+         (boxrange(1)*boxrange(2)*boxrange(3)))
 
+!!! allocate arrays based on estimated number of data points
 
-  !!! allocate arrays based on estimated number of data points
+    if(allocated(data_xyz)) deallocate(data_xyz)
+    allocate(data_xyz(3,num_data_estimate))
+    i=0
+    num_data = 0
+    point_xyz = min_bound + 0.5_dp*spacing
+    do while(point_xyz(3).le.max_bound(3)) ! for z direction
+       i=i+1
+       j=0
+       do while(point_xyz(2).le.max_bound(2)) ! for y direction
+          j=j+1
+          k=0
+          internal = .true.
+          do while(point_xyz(1).le.max_bound(1)) ! for x direction
+             k=k+1
+             internal = point_internal_to_surface(num_vertices,triangle, &
+                  point_xyz,vertex_xyz)
+             if(internal)then
+                num_data = num_data+1
+                if(num_data.le.num_data_estimate)then
+                   data_xyz(:,num_data) = point_xyz
+                else
+                   num_data_estimate = num_data_estimate + 1000
+                   allocate(data_temp(3,num_data-1))
+                   data_temp = data_xyz ! copy to temporary array
+                   deallocate(data_xyz) !deallocate initially allocated memory
+                   allocate(data_xyz(3,num_data_estimate))
+                   data_xyz(:,1:num_data-1) = data_temp(:,1:num_data-1)
+                   deallocate(data_temp) !deallocate the temporary array
 
-     if(allocated(data_xyz)) deallocate(data_xyz)
-       allocate(data_xyz(3,num_data_estimate))
-       i=0
-       num_data = 0
-       point_xyz = min_bound + 0.5_dp*spacing 
-       do while(point_xyz(3).le.max_bound(3)) ! for z direction
-          i=i+1
-          j=0 
-          do while(point_xyz(2).le.max_bound(2)) ! for y direction
-             j=j+1
-             k=0
-             internal = .true.
-             do while(point_xyz(1).le.max_bound(1)) ! for x direction
-                k=k+1
-                internal = point_internal_to_surface(num_vertices,triangle,point_xyz,vertex_xyz)
-                if(internal)then
-                  num_data = num_data+1
-                  if(num_data.le.num_data_estimate)then
-                     data_xyz(:,num_data) = point_xyz
-                  else
-                     num_data_estimate = num_data_estimate + 1000
-                     allocate(data_temp(3,num_data-1))
-                     data_temp = data_xyz ! copy to temporary array
-                     deallocate(data_xyz) !deallocate initially allocated memory
-                     allocate(data_xyz(3,num_data_estimate))
-                     data_xyz(:,1:num_data-1) = data_temp(:,1:num_data-1)
-                     deallocate(data_temp) !deallocate the temporary array
-
-                     write(*,'('' WARNING: number of data is'',I6,''; increased array size'')') num_data
-                     data_xyz(:,num_data) = point_xyz
-                  endif
+                   write(*,'('' WARNING: number of data is'',I6, &
+                        &''; increased array size'')') num_data
+                   data_xyz(:,num_data) = point_xyz
                 endif
-                ! increment the location in x direction by 'spacing'
-                point_xyz(1) = point_xyz(1) + spacing
-             enddo
-             ! increment the location in y direction by 'spacing'
-             point_xyz(1) = min_bound(1) + 0.5_dp*spacing
-             point_xyz(2) = point_xyz(2) + spacing
-         enddo
-         ! increment the location in z direction by 'spacing'
-         point_xyz(1:2) = min_bound(1:2) + 0.5_dp*spacing
-         point_xyz(3) = point_xyz(3) + spacing
-      enddo
+             endif
+             ! increment the location in x direction by 'spacing'
+             point_xyz(1) = point_xyz(1) + spacing
+          enddo
+          ! increment the location in y direction by 'spacing'
+          point_xyz(1) = min_bound(1) + 0.5_dp*spacing
+          point_xyz(2) = point_xyz(2) + spacing
+       enddo
+       ! increment the location in z direction by 'spacing'
+       point_xyz(1:2) = min_bound(1:2) + 0.5_dp*spacing
+       point_xyz(3) = point_xyz(3) + spacing
+    enddo
 
-      write(*,'('' Made'',I7,'' data points inside surface elements'')') num_data
+    write(*,'('' Made'',I7,'' data points inside surface elements'')') num_data
 
-      if(allocated(data_weight)) deallocate(data_weight)
-         allocate(data_weight(3,num_data))
-         data_weight(:,1:num_data) = 1.0_dp
-      if(offset .gt. 0.0_dp)then
-         !!! return the triangles to their original size and location
-         forall (i=1:3) vertex_xyz(1:3,i) = (vertex_xyz(1:3,i) - translate(1:3))/scale_mesh
-      endif
+    if(allocated(data_weight)) deallocate(data_weight)
+    allocate(data_weight(3,num_data))
+    data_weight(:,1:num_data) = 1.0_dp
+    if(offset .gt. 0.0_dp)then
+!!! return the triangles to their original size and location
+       forall (i=1:3) vertex_xyz(1:3,i) = (vertex_xyz(1:3,i) - &
+            translate(1:3))/scale_mesh
+    endif
 
-      if(to_export)then
-         !!! export vertices as nodes
-         writefile = trim(filename)//'.exnode'
-         open(10, file = writefile, status='replace')
-         !**    write the group name
-         write(10,'( '' Group name: '',A)') trim(groupname)
-         !*** Exporting Geometry
-         !*** Write the field information
-         write(10,'( '' #Fields=1'' )')
-         write(10,'('' 1) coordinates, coordinate, rectangular cartesian, #Components=3'')')
-         do nj=1,3
-            if(nj.eq.1) write(10,'(2X,''x.  '')',advance="no")
-            if(nj.eq.2) write(10,'(2X,''y.  '')',advance="no")
-            if(nj.eq.3) write(10,'(2X,''z.  '')',advance="no")
-            write(10,'(''Value index='',I2,'', #Derivatives='',I1)',advance="no") nj,0
-            write(10,'()')
-         enddo
-         do i = 1,num_vertices
-           !***    write the node
-           write(10,'(1X,''Node: '',I12)') i
-           write(10,'(2x,3(f12.6))') vertex_xyz(:,i)
-         enddo
-         close(10)
+    if(to_export)then
+!!! export vertices as nodes
+       writefile = trim(filename)//'.exnode'
+       open(10, file = writefile, status='replace')
+       !**    write the group name
+       write(10,'( '' Group name: '',A)') trim(groupname)
+       !*** Exporting Geometry
+       !*** Write the field information
+       write(10,'( '' #Fields=1'' )')
+       write(10,'('' 1) coordinates, coordinate, rectangular cartesian, '',&
+            &''#Components=3'')')
+       do nj=1,3
+          if(nj.eq.1) write(10,'(2X,''x.  '')',advance="no")
+          if(nj.eq.2) write(10,'(2X,''y.  '')',advance="no")
+          if(nj.eq.3) write(10,'(2X,''z.  '')',advance="no")
+          write(10,'(''Value index='',I2,'', #Derivatives='',I1)', &
+               advance="no") nj,0
+          write(10,'()')
+       enddo
+       do i = 1,num_vertices
+          !***    write the node
+          write(10,'(1X,''Node: '',I12)') i
+          write(10,'(2x,3(f12.6))') vertex_xyz(:,i)
+       enddo
+       close(10)
 
-      !!! export the triangles as surface elements
-      writefile = trim(filename)//'.exelem'
-      open(10, file=writefile, status='replace')
-      !**     write the group name
-      write(10,'( '' Group name: '',a10)') groupname
-      !**     write the lines
-      write(10,'( '' Shape. Dimension=1'' )')
-      nline=0
-      do ne = 1,num_triangles
-        write(10,'( '' Element: 0 0 '',I5)') nline+1
-        write(10,'( '' Element: 0 0 '',I5)') nline+2
-        write(10,'( '' Element: 0 0 '',I5)') nline+3
-        nline=nline+3
-      enddo !ne
+!!! export the triangles as surface elements
+       writefile = trim(filename)//'.exelem'
+       open(10, file=writefile, status='replace')
+       !**     write the group name
+       write(10,'( '' Group name: '',a10)') groupname
+       !**     write the lines
+       write(10,'( '' Shape. Dimension=1'' )')
+       nline=0
+       do ne = 1,num_triangles
+          write(10,'( '' Element: 0 0 '',I5)') nline+1
+          write(10,'( '' Element: 0 0 '',I5)') nline+2
+          write(10,'( '' Element: 0 0 '',I5)') nline+3
+          nline=nline+3
+       enddo !ne
 
-      !**        write the elements
-      write(10,'( '' Shape. Dimension=2, line*line'' )')
-      write(10,'( '' #Scale factor sets=1'' )')
-      write(10,'( '' l.Lagrange*l.Lagrange, #Scale factors=4'' )')
-      write(10,'( '' #Nodes= '',I2 )') 4
-      write(10,'( '' #Fields=1'' )')
-      write(10,'( '' 1) coordinates, coordinate, rectangular cartesian, #Components=3'')')
+       !**        write the elements
+       write(10,'( '' Shape. Dimension=2, line*line'' )')
+       write(10,'( '' #Scale factor sets=1'' )')
+       write(10,'( '' l.Lagrange*l.Lagrange, #Scale factors=4'' )')
+       write(10,'( '' #Nodes= '',I2 )') 4
+       write(10,'( '' #Fields=1'' )')
+       write(10,'( '' 1) coordinates, coordinate, rectangular cartesian, #Components=3'')')
 
-      do nj=1,3
-        if(nj==1) char1='x'; if(nj==2) char1='y'; if(nj==3) char1='z';
-        write(10,'(''  '',A2,''. l.Lagrange*l.Lagrange, no modify, standard node based.'')') char1
-        write(10,'( ''   #Nodes=4'')')
-        do nn=1,4
-          write(10,'(''   '',I1,''. #Values=1'')') nn
-          write(10,'(''     Value indices: '',I4)') 1
-          write(10,'(''     Scale factor indices: '',I4)') nn
-        enddo !nn
-      enddo !nj
+       do nj=1,3
+          if(nj==1) char1='x'; if(nj==2) char1='y'; if(nj==3) char1='z';
+          write(10,'(''  '',A2,''. l.Lagrange*l.Lagrange, no modify, standard node based.'')') char1
+          write(10,'( ''   #Nodes=4'')')
+          do nn=1,4
+             write(10,'(''   '',I1,''. #Values=1'')') nn
+             write(10,'(''     Value indices: '',I4)') 1
+             write(10,'(''     Scale factor indices: '',I4)') nn
+          enddo !nn
+       enddo !nj
 
-      nline=0
-      do ne=1,num_triangles
-        !**         write the element
-        write(10,'(1X,''Element: '',I12,'' 0 0'' )') ne
-        !**          write the faces
-        WRITE(10,'(3X,''Faces: '' )')
-        WRITE(10,'(5X,''0 0'',I6)') nline+1
-        WRITE(10,'(5X,''0 0'',I6)') nline+2
-        WRITE(10,'(5X,''0 0'',I6)') nline+3
-        WRITE(10,'(5X,''0 0'',I6)') 0
-        nline=nline+3
-        !**          write the nodes
-        write(10,'(3X,''Nodes:'' )')
-        write(10,'(4X,4(1X,I12))') triangle(:,ne),triangle(3,ne)
-        !**          write the scale factors
-        write(10,'(3X,''Scale factors:'' )')
-        write(10,'(4X,4(1X,E12.5))') 1.0_dp,1.0_dp,1.0_dp,1.0_dp
-      enddo
-      close(10)
-      endif
+       nline=0
+       do ne=1,num_triangles
+          !**         write the element
+          write(10,'(1X,''Element: '',I12,'' 0 0'' )') ne
+          !**          write the faces
+          WRITE(10,'(3X,''Faces: '' )')
+          WRITE(10,'(5X,''0 0'',I6)') nline+1
+          WRITE(10,'(5X,''0 0'',I6)') nline+2
+          WRITE(10,'(5X,''0 0'',I6)') nline+3
+          WRITE(10,'(5X,''0 0'',I6)') 0
+          nline=nline+3
+          !**          write the nodes
+          write(10,'(3X,''Nodes:'' )')
+          write(10,'(4X,4(1X,I12))') triangle(:,ne),triangle(3,ne)
+          !**          write the scale factors
+          write(10,'(3X,''Scale factors:'' )')
+          write(10,'(4X,4(1X,E12.5))') 1.0_dp,1.0_dp,1.0_dp,1.0_dp
+       enddo
+       close(10)
+    endif
 
-      deallocate(triangle)
-      deallocate(vertex_xyz)
+    deallocate(triangle)
+    deallocate(vertex_xyz)
 
-      call enter_exit(sub_name,2)
+    call enter_exit(sub_name,2)
 
-      end subroutine make_data_grid
-! 
-!###################################################################################
-! 
+  end subroutine make_data_grid
+
+!!!#############################################################################
+
+  subroutine make_2d_vessel_from_1d(elem_list)
+    !*make_2d_vessel_from_1d:* create a surface mesh that aligns with the
+    ! centrelines of a 1D tree, and located at distance 'radius' from the centre.
+    ! a template for a set of 5 nodes (that together define a bifurcation) is
+    ! scaled, rotated, translated to align with the 1d mesh and its radii.
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_MAKE_2D_VESSEL_FROM_1D" :: MAKE_2D_VESSEL_FROM_1D
+
+    integer,intent(in) :: elem_list(:)
+    ! Local variables
+    integer,allocatable :: elem_node_map(:,:,:) ! stores the surface nodes in ring around 1d nodes
+    integer,allocatable :: short_elements(:)    ! stores short surface elements for removing.
+    !                                             these will be at short successive bifurcations
+    integer :: template_cnct(2,8)               ! the node numbering for the templated elements
+    integer :: template_vrsn_map(2,8)           ! versions of nodes for the templated elements
+    integer :: template_vrsns(5)                ! # of versions of derivatives for 'template' bifurcation
+    integer :: i,j,k,np_side1,np_side2,ne,ne_child,ne_count,ne_global,ne_new, &
+         ne0,nj,nk,nmax,nn,np_crux,np_new,np_now,np0,np1,np2,np_close(2), &
+         num_short,nv,nvb
+    real(dp) :: new_coords_derivs(4,10,3,5)     ! coordinates of translated and rotated template
+    real(dp) :: ring_coords(3,5)                ! the coordinates of nodes in a current 'ring'
+    real(dp),allocatable :: ring_distance(:)    ! distance of new 'ring' of nodes from 1d start node
+    real(dp) :: template_coords(4,6,3,5)        ! coordinates of 5 nodes in 'template' bifurcation
+    real(dp) :: angle,cruxdist,distance,length,point1(3),point2(3),point3(3), &
+         radius,radius_weighted,Rx(3,3),Ry(3,3),smallest,Txyz(3),vector_1(3), &
+         vector_2(3)
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'make_2d_vessel_from_1d'
+    call enter_exit(sub_name,1)
+
+!!! allocate memory for the 2d geometry arrays
+
+    num_nodes_2d = num_nodes * 5 * 2 ! maximum possible
+    num_elems_2d = num_elems * 4 * 2 !maximum possible
+    allocate(nodes_2d(num_nodes_2d))
+    allocate(node_xyz_2d(4,10,16,num_nodes_2d)) ! maximum possible
+    allocate(node_versn_2d(num_nodes_2d))
+    allocate(elem_node_map(2,5,num_nodes_2d))
+    allocate(ring_distance(num_nodes_2d))
+    allocate(elems_2d(num_elems_2d))
+    allocate(elem_nodes_2d(4,num_elems_2d))
+    allocate(elem_versn_2d(4,num_elems_2d))
+    allocate(short_elements(4*num_elems_2d))
+
+    node_versn_2d = 1 ! default to 1 version for node np
+    elem_versn_2d = 1 ! default to 1 version for node nn in element ne
+    ring_distance = 0.0_dp
+    short_elements = 0
+    num_short = 0
+    ne_new = 0  ! initialise the surface mesh element numbering
+    np_new = 0  ! initialise the surface mesh node numbering
+
+!!! set up a generic structure (in template_coords) that will be rotated, scaled, and placed
+    ! the following arrays define the template bifurcation
+    template_vrsns = (/2,6,2,6,2/)
+    template_vrsn_map = reshape((/1,2,3,1,1,3,2,1,1,5,4,2,2,4,5,1/),shape(template_vrsn_map))
+    template_cnct = reshape((/5,2,2,3,3,4,4,5,1,2,2,5,5,4,4,1/),shape(template_cnct))
+    call mesh_2d_from_1d_generic(template_coords)
+
+!!! Place a first 'ring' of four nodes at the entrance to the model ---
+
+    ne_global = elem_list(1) ! the global stem element number for the 2d mesh
+    ne = get_local_elem_1d(ne_global)  ! the local element number
+    np1 = elem_nodes(1,ne)  ! start node number of 1d element
+    np2 = elem_nodes(2,ne)  ! end node number of 1d element
+    radius = elem_field(ne_radius,ne)   ! radius for the 1D element
+    ! calculate the rotation angle and matrices for template mesh about 1d element
+    call mesh_rotate_about_axis(ne,angle,Rx,Ry,Txyz,template_coords)
+    ! calculate new locations and derivatives for scaling, translation, rotation of template
+    call mesh_rotate_vector_about_axis(4,template_vrsns,angle,0.0_dp,radius,radius, &
+         Rx,Ry,Txyz,template_coords,new_coords_derivs)
+    ! create 4 new nodes and record their node numbers, coordinates
+    do i = 1,4
+       np_new = np_new+1
+       nodes_2d(np_new) = np_new ! global element number stored in local index
+       elem_node_map(1,i,np1) = np_new !record nodes in ring around np1
+       node_xyz_2d(:,1,:,np_new) = new_coords_derivs(:,1,:,i) ! coordinates and derivatives 1,2,1_2
+    enddo !i
+    elem_node_map(1,5,np1) = elem_node_map(1,1,np1) !dummy (5th) node to help with mapping
+
+!!! work through each of the elements in the given list, creating a ring of new
+!!! nodes and joining them to the previous ring of nodes. The assumption is that
+!!! the elements comprise a continuous tree
+
+    ne_count = 1 ! counter for the 1d elements in the list
+    do while (ne /= 0)
+
+       ne0 = elem_cnct(-1,1,ne) ! parent 1d element
+       np1 = elem_nodes(1,ne)   ! start node of current element
+       np2 = elem_nodes(2,ne)   ! end node of current element
+
+       radius = elem_field(ne_radius,ne)
+       length = elem_field(ne_length,ne)  ! length of current element
+       if(.not.bifurcation_element(ne).and.bifurcation_element(ne0)) &
+            length = max(length,ring_distance(ne)*1.1_dp)
+
+       ! check for the creation of 'short' surface elements that will later be removed
+       if(length.le.radius)then
+          forall (k = 1:4) short_elements(num_short + k) = ne_new + k
+          num_short = num_short + 4
+       endif
+
+       ! calculate the rotation angle, translation (Txyz), and rotation matrices (Rx, Ry)
+       call mesh_rotate_about_axis(ne,angle,Rx,Ry,Txyz,template_coords)
+
+       nvb = 1 !version of node mapping to use
+       if(.not.stem_element(ne))then     ! not the stem element (i.e. has a parent!)
+          ! find out whether this is 1st or 2nd child of the parent. this indicates
+          ! which 'ring' of parent nodes to join to when making new elements
+          nvb = which_child(ne,ne0)  ! the 2nd child branch
+       endif
+
+       if(.not.bifurcation_element(ne))then
+!!!    ---- for a single element that is the parent of a single element:
+          ! make 4 new nodes using 'new_coords_derivs' at the end of the 1d element
+
+          ! Apply rotation and translation to each new node from the generic template
+          radius_weighted = 0.0_dp
+          call mesh_rotate_vector_about_axis(4,template_vrsns,angle,length,radius, &
+               radius_weighted,Rx,Ry,Txyz,template_coords,new_coords_derivs)
+
+          ! as each new point is placed, check whether it is the closest to the first
+          ! surface mesh node in ring of nodes surrounding the element, i.e. around
+          ! node np1. This is used to determine the node numbering in the new element.
+          smallest = 1.0e+6_dp
+          point1(:) = node_xyz_2d(1,1,:,elem_node_map(nvb,1,np1))
+          do i = 1,4 ! four nodes in the end 'ring'
+             np_new = np_new + 1
+             nodes_2d(np_new) = np_new
+             node_xyz_2d(:,1,:,np_new) = new_coords_derivs(:,1,:,i) ! coordinates and derivatives 1,2,1_2
+             point2(:) = node_xyz_2d(1,1,:,np_new)
+             distance = distance_between_points(point1,point2)
+             if(distance.lt.smallest)then
+                smallest = distance
+                np_close(1) = np_new
+             endif
+          enddo ! i = 1,4
+          ! the closest new node (in np_close(1)) to the first node in the ring around np1
+          ! becomes the first node in the new ring. This aims to minimise distortion of
+          ! new surface elements.
+          elem_node_map(1,1,np2) = np_close(1) ! map the closest new node
+          elem_node_map(1,5,np2) = np_close(1) ! and also store at the dummy node (5th)
+          ! for the other three new nodes, map their order around the new ring and store
+          ! this ring of nodes at the end node of the underlying 1d element
+          do j = 2,4
+             if(np_close(1)+j-1.gt.np_new)then
+                elem_node_map(1,j,np2) = np_close(1)+j-5
+             else
+                elem_node_map(1,j,np2) = np_close(1)+j-1
+             endif
+          enddo ! j = 2,4
+
+          ! make new elements, using the node mapping stored in elem_node_map.
+          ! nodes 1 and 2 use mapping stored at 1d node np1, and nodes 3 and 4
+          ! use mapping stored at 1d node np2. if the underlying 1d element is
+          ! a child branch in a bifurcation then we need to get the correct
+          ! version numbers (for derivatives) from template_vrsn_map.
+          do i = 1,4  ! 4 new elements
+             ne_new = ne_new + 1
+             elems_2d(ne_new) = ne_new
+             forall(nn = 1:2) elem_nodes_2d(nn,ne_new) = elem_node_map(nvb,nn+i-1,np1)
+             forall(nn = 3:4) elem_nodes_2d(nn,ne_new) = elem_node_map(1,i+nn-3,np2)
+             if(bifurcation_element(ne0)) &
+                forall(nn = 1:2) elem_versn_2d(nn,ne_new) = template_vrsn_map(nn,i+(nvb-1)*4)
+          enddo ! i = 1,4
+          forall (i=1:4) elem_node_map(1,i,np2) = np_new-4+i
+          elem_node_map(1,5,np2) = elem_node_map(1,1,np2)
+
+       else if(bifurcation_element(ne)) then
+!!!    ---- for an element that is the parent of a bifurcation:
+          ! create surface mesh nodes around the 1d element end node and at the crux.
+
+          ! Apply rotation and translation to each new node from the generic template
+          radius_weighted = 0.5_dp*radius+0.5_dp*max(elem_field(ne_radius,elem_cnct(1,1,ne)), &
+               elem_field(ne_radius,elem_cnct(1,2,ne))) ! average of branch and largest child
+          call mesh_rotate_vector_about_axis(5,template_vrsns,angle,length,radius, &
+               radius_weighted,Rx,Ry,Txyz,template_coords,new_coords_derivs)
+          new_coords_derivs(3,1,:,1) = new_coords_derivs(3,2,:,1)
+          new_coords_derivs(3,1,:,3) = new_coords_derivs(3,2,:,3)
+
+          ! adjust location of crux node using the location of the end node of
+          ! the underlying 1d element, and end nodes of two child elements
+          call mesh_2d_from_1d_crux(elem_nodes(2,ne),elem_cnct(1,1,ne), &
+               elem_cnct(1,2,ne),cruxdist,new_coords_derivs)
+
+          do i = 1,5  ! five nodes in the bifurcation
+             np_new = np_new+1
+             nodes_2d(np_new) = np_new
+             elem_node_map(2,i,np2) = np_new ! record nodes in ring around np2
+             node_versn_2d(np_new) = template_vrsns(i)
+             ring_coords(:,i) = new_coords_derivs(1,1,:,i)  ! store the coords for 'ring'
+             node_xyz_2d(:,:,:,np_new) = new_coords_derivs(:,:,:,i) ! new node coords and derivs 1,2,1_2
+          enddo ! i = 1,5
+          elem_node_map(2,5,np2) = elem_node_map(2,1,np2) ! store mapping at dummy node
+
+          np_side1 = np_new-4  ! first side node of bifurcation
+          np_side2 = np_new-2  ! second side node of bifurcation
+
+          ! find the node number in the start 'ring' (i.e. the ring of nodes at np1
+          ! for the underlying 1d element) that is closest to the first side node (np_side1)
+          smallest = 1.0e+6_dp
+          point1(:) = node_xyz_2d(1,1,:,np_side1)
+          do i = 1,4 ! four nodes in the end 'ring'
+             point2(:) = node_xyz_2d(1,1,:,elem_node_map(nvb,i,np1)) &
+                     + (node_xyz(:,np2)-node_xyz(:,np1))
+             distance = distance_between_points(point1,point2)
+             if(distance.lt.smallest)then
+                smallest = distance
+                np_close(1) = elem_node_map(nvb,i,np1)
+             endif
+          enddo
+
+          ! adjust the node mapping around np1, so that starting from the node that is
+          ! closest to the first side node
+          NMAX = max(elem_node_map(nvb,1,np1),elem_node_map(nvb,2,np1), &
+               elem_node_map(nvb,3,np1),elem_node_map(nvb,4,np1))
+          elem_node_map(nvb,1,np1) = np_close(1)
+          elem_node_map(nvb,5,np1) = elem_node_map(nvb,1,np1)
+          do j = 2,4
+             if(np_close(1)+j-1.gt.NMAX)then
+                elem_node_map(nvb,j,np1) = np_close(1)+j-5
+             else
+                elem_node_map(nvb,j,np1) = np_close(1)+j-1
+             endif
+          enddo !j
+
+          ! create new surface elements joining the np1 and np2 rings
+          do i = 1,4
+             ne_new = ne_new+1
+             elems_2d(ne_new) = ne_new
+             forall(nn = 1:2) elem_nodes_2d(nn,ne_new) = elem_node_map(nvb,nn+i-1,np1)
+             forall(nn = 3:4) elem_nodes_2d(nn,ne_new) = np_new-5+(nn-3)+i
+             elem_node_map(1:2,i,np2) = np_new-5+i !record nodes in ring 1 around np2
+          enddo ! i
+          elem_nodes_2d(2,ne_new) = elem_node_map(nvb,1,np1)
+          elem_nodes_2d(4,ne_new) = np_new-4
+
+          elem_node_map(1,1,np2) = np_new
+          elem_node_map(2,3,np2) = np_new
+          elem_node_map(1:2,5,np2) = elem_node_map(1:2,1,np2)
+
+          np_crux = np_new
+
+          ! for an element that is the parent of a bifurcation, also create
+          ! nodes and elements along each of the two child branches
+          np0 = np1  ! the start node of the parent element
+          do k = 1,2 ! for each of two child branches
+             ne_child = elem_cnct(1,k,ne) ! child element of the 1d branch
+             np1 = elem_nodes(1,ne_child) ! child element start node
+             np2 = elem_nodes(2,ne_child) ! child element end node
+             length = max(cruxdist*1.25_dp, 0.5_dp*(cruxdist*1.25_dp+ &
+                  (elem_field(ne_length,ne_child) - radius*0.5_dp)))
+             ring_distance(ne_child) = length
+
+             ! calculate the rotation angle for the branch
+             call mesh_rotate_about_axis(ne_child,angle,Rx,Ry,Txyz,template_coords)
+
+             radius = elem_field(ne_radius,ne_child)
+             radius_weighted = radius
+             call mesh_rotate_vector_about_axis(4,template_vrsns,angle,length,radius, &
+                  radius_weighted,Rx,Ry,Txyz,template_coords,new_coords_derivs)
+
+             do i = 1,4  ! four nodes in the new 'ring'
+                np_new = np_new + 1
+                nodes_2d(np_new) = np_new ! store new node number
+                node_xyz_2d(:,1,:,np_new) = new_coords_derivs(:,1,:,i) ! coordinates and derivatives 1,2,1_2
+             enddo ! i
+
+             ! the bifurcation offers two potential rings of nodes to attach to.
+             ! determine which is the correct ring using the angle between the
+             ! direction of the child element and the direction from the start
+             ! of the child element to the centre of each ring.
+             point1(:) = node_xyz(:,np2)  ! coordinates at end of child branch
+             point2(:) = node_xyz(:,np1)  ! coordinates at start of child branch
+             point3 = 0.0_dp
+             do i = 1,4
+                point3(:) = point3(:) + ring_coords(:,template_cnct(1,i))/4.0_dp
+             enddo !i
+             angle = angle_btwn_points(point1,point2,point3)
+
+             point3 = 0.0_dp
+             do i = 1,4
+                point3(:) = point3(:) + ring_coords(:,template_cnct(1,i+4))/4.0_dp
+             enddo !i
+
+             nvb = 1
+             if(angle.gt.angle_btwn_points(point1,point2,point3)) nvb = 2
+
+             ! determine which of the nodes in the bifurcation ring the new nodes
+             ! should attach to based on which of the new nodes is the closest to
+             ! the 5th (for nvb=1) or 1st (for nvb=2) ring node
+             smallest = 1.0e+6_dp
+             do i = 1,4
+                vector_1(:) = new_coords_derivs(1,1,:,i) - ring_coords(:,2)
+                vector_1 = unit_vector(vector_1)
+                vector_2(:) = elem_direction(:,ne_child)
+                angle = angle_btwn_vectors(vector_1,vector_2)
+                if(angle.lt.smallest)then
+                   smallest = angle
+                   j = i - 4 - 1
+                   if(j.eq.-4) j = 0
+                   np_close(nvb) = np_new + j
+                endif
+             enddo !i
+
+             ! record the node mapping in the ring
+             elem_node_map(k,1,np1) = np_close(nvb)
+             elem_node_map(k,5,np1) = elem_node_map(k,1,np1)
+             do j = 2,4
+                if(np_close(nvb)+j-1.gt.np_crux+4*k)then
+                   elem_node_map(k,j,np1) = np_close(nvb)+j-5
+                else
+                   elem_node_map(k,j,np1) = np_close(nvb)+j-1
+                endif
+             enddo !j
+
+             ! set up new elements
+             do i = 1,4
+                ne_new = ne_new+1
+                elems_2d(ne_new) = ne_new
+                do nn = 1,2
+                   np_now = template_cnct(nn,i+(nvb-1)*4)+np_crux-5
+                   elem_nodes_2d(nn,ne_new) = np_now
+                   elem_versn_2d(nn,ne_new) = template_vrsn_map(nn,i+(nvb-1)*4)
+                   if(np_now.eq.np_side1.or.np_now.eq.np_side2) elem_versn_2d(nn,ne_new) = 2
+                enddo !nn
+                forall(nn = 3:4) elem_nodes_2d(nn,ne_new) = elem_node_map(k,i+nn-3,np1)
+             enddo !i
+          enddo !k
+
+       endif ! .not.bifurcation(ne)
+
+       ne_count = ne_count+1
+       if(ne_count.gt.num_elems)then
+          ne = 0
+       else
+          if(ne_count .gt. count(elem_list.ne.0))then
+             ne = 0
+          else
+             ne_global = elem_list(ne_count)
+             ne = get_local_elem_1d(ne_global)
+          endif
+       endif
+    enddo ! while (ne /= 0)
+
+    num_nodes_2d = np_new
+    num_elems_2d = ne_new
+
+    call element_connectivity_2d
+    call line_segments_for_2d_mesh('arcl')
+
+    ! make sure that the nodes are nicely distributed along the branches
+    call redistribute_mesh_nodes_2d_from_1d
+    ! merge unnecessary elements. Most branches will end up with one element in Xi+2
+    call merge_2d_from_1d_mesh
+    ! remove very short branches where a trifurcation is more appropriate
+    call merge_trifurcations(short_elements)
+
+    deallocate(elem_node_map)
+    deallocate(ring_distance)
+    deallocate(short_elements)
+
+    call enter_exit(sub_name,2)
+
+  end subroutine make_2d_vessel_from_1d
+
+!!!#############################################################################
+
+  subroutine mesh_2d_from_1d_generic(template_coords)
+    !*mesh_2d_from_1d_generic:* provide the coordinates of the templated nodes
+    ! for a surface mesh creation about a 1d tree mesh
+
+    real(dp) :: template_coords(:,:,:,:)
+    !     Local Variables
+    integer :: i,j,nj
+    real(dp) :: angle,s1_dir(3)=0.0_dp,s2_dir(3)=0.0_dp
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'mesh_2d_from_1d_generic'
+    call enter_exit(sub_name,1)
+
+    template_coords = 0.0_dp
+
+    !.....Set up a default ring of nodes.
+    do i = 1,4 ! step around the ring of nodes in four steps
+       angle = 2.0_dp * pi * dble(i-1)/4.0_dp !=2*PI*step/number_of_steps
+       !.......Derivatives
+       s1_dir(1) = -sin(angle) !dxi_1/dx
+       s1_dir(2) = cos(angle)  !dxi_1/dy
+       s2_dir(3) = 0.3_dp      !dxi_2/dz
+       template_coords(1,:,1,i) = s1_dir(2) !cos(angle)
+       template_coords(1,:,2,i) = -s1_dir(1) !sin(angle)
+       forall (nj = 1:3) template_coords(2,:,nj,i) = s1_dir(nj)
+       forall (nj = 1:3) template_coords(3,:,nj,i) = s2_dir(nj)
+    enddo !i
+
+    !.....First side node
+    template_coords(1,:,3,1) = -1.5_dp   ! side node
+    template_coords(3,2,1,1) = 0.15_dp
+    template_coords(3,2,2,1) = 0.0_dp
+    template_coords(3,2,3,1) = 0.7_dp
+
+    !.....Front bifurcation node
+    template_coords(2,2,1:2,2) = 0.0_dp
+    template_coords(2,2,3,2) = -1.0_dp
+    template_coords(2,4,:,2) = -template_coords(2,2,:,2)
+    template_coords(3,2:3,1,2) = -0.33_dp
+    template_coords(3,2:5,2,2) = 0.0_dp
+    template_coords(3,2:5,3,2)= 0.33_dp
+    template_coords(3,4:5,1,2)= 0.33_dp
+
+    !.....Second side node
+    template_coords(1,:,3,3) = -1.5_dp   ! side node
+    template_coords(3,2,1,3) = -0.15_dp
+    template_coords(3,2,2:3,3) = template_coords(3,2,2:3,1)
+
+    !.....Back bifurcation node
+    template_coords(2,2,1:2,4) = 0.0_dp
+    template_coords(2,2,3,4) = 1.0_dp
+    template_coords(2,4,:,4) = -template_coords(2,2,:,4)
+    template_coords(3,2:3,1,4) = -0.33_dp
+    template_coords(3,2:5,2,4) = 0.0_dp
+    template_coords(3,2:5,3,4)= 0.33_dp
+    template_coords(3,4:5,1,4)= 0.33_dp
+
+    !.....Crux node
+    template_coords(1,:,3,5) = 1.5_dp
+    template_coords(2,1,2,5) = 1.0_dp
+    template_coords(2,2,:,5) = -template_coords(2,1,:,5)
+    template_coords(3,1,1,5) = -0.3_dp
+    template_coords(3,2,1,5) = 0.3_dp
+
+    call enter_exit(sub_name,2)
+
+  end subroutine mesh_2d_from_1d_generic
+
+!!!#############################################################################
+
+  subroutine mesh_rotate_about_axis(ne,angle_z,Rx,Ry,Txyz,template_coords)
+    !*mesh_rotate_about_axis:* calculates the rotation matrices and z-angle for
+    ! rotation of a vector about an arbitrary axis defined by the direction
+    ! of element ne.
+
+    integer,intent(in) :: ne
+    real(dp) :: angle_z,Rx(:,:),Ry(:,:),Txyz(:)
+    real(dp),intent(in) :: template_coords(:,:,:,:)
+    ! Local Variables
+    integer :: j,ne0,nj,np0,np1,np2,np3,np4
+    real(dp) :: angle_z2,ln_23,NML(4),V(3),X1(3),X2(3),X3(3)
+    logical :: found
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'mesh_rotate_about_axis'
+    call enter_exit(sub_name,1)
+
+    np1 = elem_nodes(1,ne)
+    np2 = elem_nodes(2,ne)
+
+    ! Find next bifurcation nodes, for calculating rotation about the z-axis
+    if(elem_cnct(1,0,ne).ge.2)then !get adjacent nodes
+       np0 = np1
+       np3 = elem_nodes(2,elem_cnct(1,1,ne)) !end node of first child
+       np4 = elem_nodes(2,elem_cnct(1,2,ne)) !end node of second child
+    else !find next bifurcation
+       found = .false.
+       ne0 = ne
+       do while (.not.found)
+          if(elem_cnct(1,0,ne0).eq.1)then
+             ne0 = elem_cnct(1,1,ne0)
+             np0 = elem_nodes(1,ne0)
+          elseif(elem_cnct(1,0,ne0).ge.2)then
+             found = .true.
+             np3 = elem_nodes(2,elem_cnct(1,1,ne0))
+             np4 = elem_nodes(2,elem_cnct(1,2,ne0))
+          elseif(elem_cnct(1,0,ne0).eq.0)then
+             found = .true.
+             np3 = 0
+             np4 = 0
+          endif
+       enddo
+    endif
+
+!!! .....Calculate the rotation and translation matrices
+
+!!! np1 == start node, np2 == end node, np3 == end of child 1, np4 == end of child 2
+
+!!! translation = the displacement from (0,0,0) to np1 (= -node_xyz(np1))
+    Txyz(1:3) = -node_xyz(1:3,np1)   ! translation of the generic nodes
+
+!!! Rotation matrices: Rx(-1) = | 1  0    0  |   Ry(-1) = | d 0 -a |   Rz = | cos(t)  -sin(t) |
+!!!                             | 0 c/d -b/d |            | 0 1  0 |        | sin(t)   cos(t) |
+!!!                             | 0 b/d  c/d |            | a 0  d |        |   0        0    |
+!!! where U(a,b,c) == branch direction (elem_direction(1:3,ne)) and d = sqrt(b2 + c2)
+!!! see www.paulbourke.net/geometry/rotate for explanation
+
+    Rx = 0.0_dp
+    Ry = 0.0_dp
+    Rx(1,1) = 1.0_dp !x-x = 1
+    ln_23 = sqrt(elem_direction(2,ne)**2 + elem_direction(3,ne)**2)
+    if(abs(ln_23).lt.zero_tol) ln_23 = 1.0_dp
+    Rx(2,2) = elem_direction(3,ne)/ln_23
+    Rx(2,3) = elem_direction(2,ne)/ln_23
+    Rx(3,2) = -Rx(2,3)
+    Rx(3,3) = Rx(2,2)
+
+    Ry(2,2) = 1.0_dp !x-x = 1
+    Ry(1,1) = ln_23
+    Ry(1,3) = elem_direction(1,ne)
+    Ry(3,1) = -Ry(1,3)
+    Ry(3,3) = Ry(1,1)
+
+    !.....The angle for rotation about the z-axis is equal to the angle
+    !.....between the normal to the plane containing bifurcation nodes and
+    !.....the theta=0 direction
+    if(np3.ne.0)then
+!!!    get the normal to the plane (NML)
+       X1(1:3) = node_xyz(1:3,np0)
+       X2(1:3) = node_xyz(1:3,np3)
+       X3(1:3) = node_xyz(1:3,np4)
+       call make_plane_from_3points(NML,2,X1,X2,X3)
+
+       V(:) = template_coords(1,1,:,2)   ! direction of 'front' bifurcation node == 0,1,0
+       V = unit_vector(V)
+       !.......Calculate location of V if rotation about x- and y- was applied
+       X1 = 0.0_dp
+       X2 = 0.0_dp
+       do nj=1,3
+          do j=1,3
+             X1(nj) = X1(nj)+Ry(nj,j)*V(j)
+          enddo !j
+       enddo !nj
+       do nj = 1,3
+          do j = 1,3
+             X2(nj) = X2(nj)+Rx(nj,j)*X1(j)
+          enddo !j
+       enddo !nj
+       V = X2 !-Txyz(nj)
+       V = unit_vector(V)   ! the direction of the vector rotated about x and y axes
+
+       angle_z = min(scalar_product_3(V,NML),1.0_dp)
+       angle_z = max(scalar_product_3(V,NML),-1.0_dp)
+
+       if(angle_z.ge.1_dp)then
+          angle_z = 0.0_dp
+       elseif(angle_z.le.-1.0_dp)then
+          angle_z = pi
+       else
+          angle_z = acos(angle_z) ! angle between normal and 2nd (front) node
+       endif
+
+       V(:) = template_coords(1,1,:,3)   ! direction to the 'side' node
+       V = unit_vector(V)
+       !.......Calculate location of V if rotation about x- and y- was applied
+       X1 = 0.0_dp
+       X2 = 0.0_dp
+       do nj=1,3
+          do j=1,3
+             X1(nj) = X1(nj)+Ry(nj,j)*V(j)
+          enddo !j
+       enddo !nj
+       do nj = 1,3
+          do j = 1,3
+             X2(nj) = X2(nj)+Rx(nj,j)*X1(j)
+          enddo !j
+       enddo !nj
+       V = X2 !-Txyz(nj)
+       V = unit_vector(V)
+       angle_z2 = acos(scalar_product_3(V,NML)) ! angle between normal and 3rd (side) node
+       if(angle_z2.lt.PI/2.0_dp)then
+          angle_z = -angle_z
+       endif
+    else
+       angle_z = 0.0_dp
+    endif
+
+    call enter_exit(sub_name,2)
+
+  end subroutine mesh_rotate_about_axis
+
+!!!#############################################################################
+
+  subroutine mesh_rotate_vector_about_axis(N,template_vrsns,angle,length, &
+       radius,radius_weighted,Rx,Ry,Txyz,template_coords,new_coords_derivs)
+    !*mesh_rotate_vector_about_axis:* rotates a vector (starting at (0,0,0))
+    ! about an arbitrary axis. Rotation matrices are in Rx and Ry.
+    ! angle is the amount to rotate about z-axis.
+
+    integer,intent(in) :: N,template_vrsns(:)
+    real(dp),intent(in) :: angle,length,radius,radius_weighted,Rx(3,3), &
+         Ry(3,3),Txyz(3),template_coords(:,:,:,:)
+    real(dp) :: new_coords_derivs(:,:,:,:)
+    ! Local variables
+    integer :: i,j,nj,nk,nv
+    real(dp) :: X1(3),X2(3)
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'mesh_rotate_vector_about_axis'
+    call enter_exit(sub_name,1)
+
+    new_coords_derivs = 0.0_dp
+
+    do i = 1,N !each node in ring, plus crux if at bifurcation
+       do nk = 1,4
+          do nv = 1,template_vrsns(i)
+             new_coords_derivs(nk,nv,:,i) = template_coords(nk,nv,:,i)
+             X1(1) = cos(angle)*new_coords_derivs(nk,nv,1,i) + &
+                  sin(angle)*new_coords_derivs(nk,nv,2,i)
+             X1(2) = -sin(angle)*new_coords_derivs(nk,nv,1,i) + &
+                  cos(angle)*new_coords_derivs(nk,nv,2,i)
+             new_coords_derivs(nk,nv,1,i) = X1(1)
+             new_coords_derivs(nk,nv,2,i) = X1(2)
+          enddo !nv
+       enddo !nk
+       do nv = 1,template_vrsns(i)
+          if(N.eq.5)then ! calculating for a bifurcation
+             if(i.eq.2.or.i.eq.4)then
+                new_coords_derivs(1,nv,1:2,i) = new_coords_derivs(1,nv,1:2,i)*radius_weighted
+             else
+                new_coords_derivs(1,nv,1:2,i) = new_coords_derivs(1,nv,1:2,i)*radius*1.05_dp
+             endif
+          else ! calculating for a non-bifurcation 'ring'
+             new_coords_derivs(1,nv,1:2,i) = new_coords_derivs(1,nv,1:2,i)*radius
+          endif
+          if(N.lt.5)then
+             new_coords_derivs(1,nv,3,i) = length
+          elseif(N.EQ.5)then
+             if(i.eq.3.or.i.eq.1)then
+                new_coords_derivs(1,nv,3,i) = length-radius*0.5_dp
+             else
+                new_coords_derivs(1,nv,3,i) = length
+             endif
+          endif
+       enddo !nv
+       do nk = 1,4
+          do nv = 1,template_vrsns(i)
+             X1 = 0.0_dp
+             X2 = 0.0_dp
+             do nj = 1,3
+                do j = 1,3
+                   X1(nj) = X1(nj)+Ry(nj,j)*new_coords_derivs(nk,nv,j,i)
+                enddo !j
+             enddo !nj
+             do nj = 1,3
+                do j = 1,3
+                   X2(nj) = X2(nj)+Rx(nj,j)*X1(j)
+                enddo !j
+             enddo !nj
+             do nj = 1,3
+                if(nk.eq.1)then !geometry
+                   new_coords_derivs(nk,nv,nj,i) = X2(nj)-Txyz(nj)
+                else !derivatives
+                   new_coords_derivs(nk,nv,nj,i) = X2(nj)
+                endif
+             enddo !nj
+          enddo !nv
+       enddo !nk
+    enddo !i
+
+    call enter_exit(sub_name,2)
+
+  end subroutine mesh_rotate_vector_about_axis
+
+!!!#############################################################################
+
+  subroutine mesh_2d_from_1d_crux(np0,ne_1,ne_2,distance,new_coords_derivs)
+    !*mesh_2d_from_1d_crux:* adjusts the location of the crux node for deriving
+    ! a 2d surface mesh over a 1d tree mesh.
+
+    integer,intent(in) :: ne_1,ne_2,np0
+    real(dp) :: distance,new_coords_derivs(:,:,:,:)
+    ! Local variables
+    real(dp) :: angle,angle_V,angle_U,gamma,length_U,length_V,matrix(3,3),&
+         N(3),radius_U,radius_V,W(3),vector(3),weight,width
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'mesh_2d_from_1d_crux'
+    call enter_exit(sub_name,1)
+
+    !adjust location of crux node
+    radius_U = elem_field(ne_radius,ne_1)
+    radius_V = elem_field(ne_radius,ne_2)
+
+    ! get the direction of the normal to the two branch directions (N)
+    N = cross_product(elem_direction(1,ne_1),elem_direction(1,ne_2))
+    N = unit_vector(N) ! normalise
+
+    ! get the angle between the two branches
+    angle = scalar_product_3(elem_direction(1,ne_1),elem_direction(1,ne_2))
+    angle = acos(angle)
+
+    width = sqrt(radius_U**2 +radius_V**2 - 2.0_dp*radius_U*radius_V*cos(pi-angle))
+
+    gamma = asin(radius_U*sin(pi-angle)/width)
+    length_U = width*sin(pi/2.0_dp-gamma)/sin(angle)
+    gamma = asin(radius_V*sin(pi-angle)/width)
+    length_V = width*sin(pi/2.0_dp-gamma)/sin(angle)
+
+    ANGLE_U = atan(radius_U/length_U)
+    ANGLE_V = atan(radius_V/length_V)
+
+!!!..... n.w = 0
+!!!..... u.w = cos(angle_u) * Lw
+!!!..... v.w = cos(angle_v) * Lw
+
+    matrix(1,:) = N(:)
+    matrix(2,:) = elem_direction(:,ne_1)
+    matrix(3,:) = elem_direction(:,ne_2)
+    vector(1) = 0.0_dp
+    vector(2) = cos(ANGLE_U)*sqrt(length_U**2+radius_U**2)
+    vector(3) = cos(ANGLE_V)*sqrt(length_U**2+radius_U**2)
+
+    w = mesh_a_x_eq_b(matrix,vector)
+    w = unit_vector(w)
+
+    distance = sqrt(length_U**2 +radius_U**2)
+    if(angle.gt.pi)then
+       write(*,'( ''WARNING - angle exceeds pi'')')
+    else if(angle.gt.pi/2.0_dp)then
+       weight = 1.1_dp
+    else if(angle.gt.3.0_dp*pi/8.0_dp)then
+       weight = 1.0_dp
+    else if(angle.gt.pi/4.0_dp)then
+       weight = 0.9_dp
+    else
+       weight = 0.75_dp
+    endif
+
+    new_coords_derivs(1,1,1:3,5) = node_xyz(1:3,np0) + W(1:3) * distance * weight
+    new_coords_derivs(1,2,:,5) = new_coords_derivs(1,1,:,5)
+
+    call enter_exit(sub_name,2)
+
+  end subroutine mesh_2d_from_1d_crux
+
+!!!###########################################################################
+
+  subroutine merge_2d_from_1d_mesh
+    !*merge_2d_from_1d_mesh:* used for deriving a 2d surface mesh over a 1d
+    ! tree mesh. merges the elements in the 'rings' that are adjacent to the
+    ! bifurcations in the +Xi2 direction
+
+    ! Local variables
+    integer :: j,ne,ne_parent,ne_parent2,non_zero,np,np1,np2
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'merge_2d_from_1d_mesh'
+    call enter_exit(sub_name,1)
+
+    ne = 1
+    do while (ne.le.num_elems_2d)
+       if(elems_2d(ne).gt.0)then
+          if(elem_cnct_2d(2,0,ne).gt.0)then
+             np1 = elem_nodes_2d(3,ne)
+             np2 = elem_nodes_2d(4,ne)
+             if(node_versn_2d(np1).gt.1.and.node_versn_2d(np2).gt.1)then
+                ! merge with the previous ring
+                do j = 1,4
+                   ne_parent = elem_cnct_2d(-2,1,ne)  ! get element proximal to current
+                   elem_nodes_2d(1:2,ne) = elem_nodes_2d(1:2,ne_parent)
+                   elem_versn_2d(1:2,ne) = elem_versn_2d(1:2,ne_parent)
+                   elem_cnct_2d(-2,0:1,ne) = elem_cnct_2d(-2,0:1,ne_parent)
+                   if(elem_cnct_2d(-2,0,ne_parent).ne.0)then
+                      ne_parent2 = elem_cnct_2d(-2,1,ne_parent)
+                      elem_cnct_2d(2,0:1,ne_parent2) = elem_cnct_2d(2,0:1,ne_parent)
+                   endif
+                   nodes_2d(elem_nodes_2d(3,ne_parent)) = 0
+                   node_xyz_2d(:,:,:,elem_nodes_2d(3,ne_parent)) = 0.0_dp
+                   elems_2d(ne_parent) = 0
+                   elem_nodes_2d(:,ne_parent) = 0
+                   ne = ne + 1
+                enddo
+             else
+                ne = ne + 4 ! skip to next ring
+             endif
+          else
+             ne = ne + 4 ! skip to next ring
+          endif
+       else
+          ne = ne + 4 ! skip to next ring
+       endif
+    enddo
+
+    non_zero = 0
+    do np = 1,num_nodes_2d
+       if(nodes_2d(np).ne.0)then
+          non_zero = non_zero + 1
+       endif
+    enddo
+    num_nodes_2d = non_zero
+
+    non_zero = 0
+    do ne = 1,num_elems_2d
+       if(elems_2d(ne).ne.0)then
+          non_zero = non_zero + 1
+       endif
+    enddo
+    num_elems_2d = non_zero
+
+    call enter_exit(sub_name,2)
+
+  end subroutine merge_2d_from_1d_mesh
+
+!!!#############################################################################
+
+  subroutine merge_trifurcations(short_elements)
+    !*merge_trifurcations:* used when deriving a 2d surface mesh from a 1d tree
+    ! mesh. merges short 2d elements with neighbouring elements, and removes.
+    ! this is required for two bifurcations that occur with a very
+    ! short distance between them. i.e. when approximately a trifurcation.
+
+    integer,intent(in) :: short_elements(:)
+    ! Local variables
+    integer :: k,ne,ne_child,ne_next,ne_parent,np_current,np_next
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'merge_trifurcations'
+    call enter_exit(sub_name,1)
+
+    k = 1
+    ne = short_elements(k)
+
+    ! for each of the 'short' surface elements, delete them by joining the
+    ! parent and child elements together. Work on a group of 4 elements at
+    ! a time, where the four elements run in the Xi1 direction == a ring
+    ! of elements in a cylinder .
+
+    do while (ne /= 0)
+       ne_parent = elem_cnct_2d(-2,1,ne)  ! element proximal to the current one
+       ne_child = elem_cnct_2d(2,1,ne)    ! element distal to the current one
+       elem_nodes_2d(1,ne_child) = elem_nodes_2d(1,ne)
+       elem_versn_2d(1,ne_child) = elem_versn_2d(1,ne)
+       elem_nodes_2d(4,ne_parent) = elem_nodes_2d(4,ne)
+       elem_versn_2d(4,ne_parent) = elem_versn_2d(4,ne)
+       elems_2d(ne) = 0 ! remove the current element from the 2d element list
+
+       k = k + 1
+       ne = short_elements(k)
+       ne_parent = elem_cnct_2d(-2,1,ne)
+       ne_child = elem_cnct_2d(2,1,ne)
+       elem_nodes_2d(2,ne_child) = elem_nodes_2d(2,ne)
+       elem_versn_2d(2,ne_child) = elem_versn_2d(2,ne)
+       elem_nodes_2d(3,ne_parent) = elem_nodes_2d(3,ne)
+       elem_versn_2d(3,ne_parent) = elem_versn_2d(3,ne)
+       elems_2d(ne) = 0
+
+       k = k + 1
+       ne = short_elements(k)
+       ne_parent = elem_cnct_2d(-2,1,ne)
+       ne_child = elem_cnct_2d(2,1,ne)
+       elem_nodes_2d(1,ne_child) = elem_nodes_2d(1,ne)
+       elem_versn_2d(1,ne_child) = elem_versn_2d(1,ne)
+       elem_nodes_2d(2,ne_child) = elem_nodes_2d(2,ne)
+       elem_versn_2d(2,ne_child) = elem_versn_2d(2,ne)
+
+       ! update the 1st node in the neighbouring Xi+1 element
+       ne_next = elem_cnct_2d(1,1,ne_child)
+       np_next = elem_nodes_2d(2,ne)
+       np_current = elem_nodes_2d(1,ne_next)
+       elem_nodes_2d(1,ne_next) = np_next  ! replace np_current with np_next
+
+       node_versn_2d(np_next) = node_versn_2d(np_next) + 1 ! add a version
+       ! deriv in Xi1 == same as current node; deriv in Xi2 == same as new node
+       node_xyz_2d(:,node_versn_2d(np_next),:,np_next) = node_xyz_2d(:,1,:,np_next)
+       node_xyz_2d(2,node_versn_2d(np_next),:,np_next) = node_xyz_2d(2,elem_versn_2d(1,ne_next),:,np_current)
+       node_xyz_2d(3,node_versn_2d(np_next),:,np_next) = node_xyz_2d(3,elem_versn_2d(2,ne_child),:,np_next)
+       elem_versn_2d(1,ne_next) = node_versn_2d(np_next)
+       elems_2d(ne) = 0
+
+       ne_next = elem_cnct_2d(-1,1,ne_child)
+       node_xyz_2d(3,elem_versn_2d(2,ne_next),:,np_next) = node_xyz_2d(3,node_versn_2d(np_next),:,np_next)
+
+       k = k + 1
+       ne = short_elements(k)
+       ne_parent = elem_cnct_2d(-2,1,ne)
+       ne_child = elem_cnct_2d(2,1,ne)
+       elem_nodes_2d(1,ne_child) = elem_nodes_2d(1,ne)
+       elem_versn_2d(1,ne_child) = elem_versn_2d(1,ne)
+       elem_nodes_2d(2,ne_child) = elem_nodes_2d(2,ne)
+       elem_versn_2d(2,ne_child) = elem_versn_2d(2,ne)
+
+       ! update the 2nd node in the neighbouring Xi-1 direction
+       ne_next = elem_cnct_2d(-1,1,ne_child)
+       np_next = elem_nodes_2d(1,ne)
+       np_current = elem_nodes_2d(2,ne_next)
+       node_versn_2d(np_next) = node_versn_2d(np_next) + 1 ! add a version
+       node_xyz_2d(:,node_versn_2d(np_next),:,np_next) = node_xyz_2d(:,1,:,np_next)
+       node_xyz_2d(2,node_versn_2d(np_next),:,np_next) = -node_xyz_2d(2,node_versn_2d(np_next)-1,:,np_next)
+       node_xyz_2d(3,node_versn_2d(np_next),:,np_next) = node_xyz_2d(3,elem_versn_2d(2,ne_next),:,np_current)
+       elem_nodes_2d(2,ne_next) = np_next                    ! change the 2nd node number of adjacent element
+       elem_versn_2d(2,ne_next) = node_versn_2d(np_next)
+       elems_2d(ne) = 0
+
+       ne_next = elem_cnct_2d(1,1,ne_next)
+       node_xyz_2d(3,elem_versn_2d(1,ne_next),:,np_next) = node_xyz_2d(3,node_versn_2d(np_next),:,np_next)
+
+       k = k + 1
+       ne = short_elements(k)
+    enddo
+
+    num_nodes_2d = count(nodes_2d.ne.0)
+    num_elems_2d = count(elems_2d.ne.0)
+
+    call enter_exit(sub_name,2)
+
+  end subroutine merge_trifurcations
+
+!!!#############################################################################
+
   subroutine define_rad_from_file(FIELDFILE, radius_type_in)
-  !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_DEFINE_RAD_FROM_FILE" :: DEFINE_RAD_FROM_FILE
-
-  !*define_rad_from_file:* reads in a radius field associated with an aiway tree
-! and assigns radius information to each element, also calculates volume of each
-! element
+    !*define_rad_from_file:* reads in a radius field associated with an
+    ! airway tree and assigns radius information to each element, also
+    ! calculates volume of each element
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_DEFINE_RAD_FROM_FILE" :: DEFINE_RAD_FROM_FILE
 
     character(len=MAX_FILENAME_LEN), intent(in) :: FIELDFILE
     character(len=MAX_STRING_LEN), optional ::  radius_type_in
     !     Local Variables
-    integer :: ierror,ne,np,np1,np2,np_global,surround
+    integer :: ierror,ne,ne_counter,ne_global,np,np1,np2,np_global, &
+         num_elem_rad,surround
+    real(dp) :: radius
+    logical :: node_based,versions
     character(len=MAX_STRING_LEN) ::  radius_type
     character(LEN=132) :: ctemp1
-    LOGICAL :: versions
-    real(dp) :: constrict,radius
+    character(len=250) :: readfile
     character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
 
     sub_name = 'define_rad_from_file'
     call enter_exit(sub_name,1)
-    
+
     versions = .TRUE.
     if(present(radius_type_in))then
-      radius_type = radius_type_in
+       radius_type = radius_type_in
     else
-      radius_type = 'no_taper'
+       radius_type = 'no_taper'
     endif
 
-!!! note that 'constrict' should not be used here (so is set to 1.0).
-!!! this should be specified and used as part of a simulation, not when
-!!! reading in airway geometry
-    constrict = 1.0_dp
-    open(10, file=FIELDFILE, status='old')
+    if(index(FIELDFILE, ".ipfiel")> 0) then !full filename is given
+       readfile = FIELDFILE
+    else ! need to append the correct filename extension
+       readfile = trim(FIELDFILE)//'.ipfiel'
+    endif
 
-    !.....check whether versions are prompted (>1)
-    read_versions : do !define a do loop name
+    open(10, file=readfile, status='old')
+
+!!! check whether reading in a node-based or element-based field
+    check_type : do
        read(unit=10, fmt="(a)", iostat=ierror) ctemp1 !read a line into ctemp1
-       if(index(ctemp1, "different")> 0) then !keyword "different" is found
-          if(index(ctemp1, " N")> 0) then !keyword " N" is found
-             versions=.false.
-          endif
-          exit read_versions !exit the named do loop
+       if(index(ctemp1, "of elem")> 0) then ! element-based field
+          node_based = .false.
+          num_elem_rad = get_final_integer(ctemp1) !get global element number
+          exit check_type
+       else if(index(ctemp1, "of node")> 0) then ! node-based field
+          node_based = .true.
+          exit check_type
        endif
-    end do read_versions
+    enddo check_type
 
-    np = 0
-    !.....read the coordinate, derivative, and version information for each node.
-    read_a_node : do !define a do loop name
-       !.......read node number
-       read(unit=10, fmt="(a)", iostat=ierror) ctemp1
-       if(index(ctemp1, "Node")> 0) then
-          np_global = get_final_integer(ctemp1) !get global node number
-          ! find the corresponding local node number
-          call get_local_node(np_global,np) ! get local node np for global node
-          surround=elems_at_node(np,0)         !get number of surrounding elems
-          ne=elems_at_node(np,1)  !First element at this node
-          if(surround==1)then !only one element at this node so either a terminal or inlet
-             if(radius_type.eq.'taper')then !inlet radius needs to be defined
-               if(elem_cnct(-1,0,ne).eq.0)then!Inlet as it has no parent need to set up radius into this vessel
-                 read(unit=10, fmt="(a)", iostat=ierror) ctemp1
-                 read(unit=10, fmt="(a)", iostat=ierror) ctemp1
-                 if(index(ctemp1, "version number")>0) then
-                    read(unit=10, fmt="(a)", iostat=ierror) ctemp1
-                 endif
-                 if(index(ctemp1, "value")> 0) then
-                    radius = get_final_real(ctemp1)
-                    elem_field(ne_radius_in,ne)=constrict*radius
-                 endif
-               endif
+    if(node_based)then
+       !.....check whether versions are prompted (>1)
+       read_versions : do !define a do loop name
+          read(unit=10, fmt="(a)", iostat=ierror) ctemp1 !read a line into ctemp1
+          if(index(ctemp1, "different")> 0) then !keyword "different" is found
+             if(index(ctemp1, " N")> 0) then !keyword " N" is found
+                versions=.false.
              endif
-             if(elem_cnct(-1,0,ne).eq.0)cycle      !No parent therefore inlet. Skip and go to the next
-             read(unit=10, fmt="(a)", iostat=ierror) ctemp1
-             read(unit=10, fmt="(a)", iostat=ierror) ctemp1
-             if(index(ctemp1, "version number")>0) then
+             exit read_versions !exit the named do loop
+          endif
+       end do read_versions
+
+       np = 0
+       !.....read the coordinate, derivative, and version information for each node.
+       read_a_node : do !define a do loop name
+          !.......read node number
+          read(unit=10, fmt="(a)", iostat=ierror) ctemp1
+          if(index(ctemp1, "Node")> 0) then
+             np_global = get_final_integer(ctemp1) !get global node number
+             ! find the corresponding local node number
+             call get_local_node(np_global,np) ! get local node np for global node
+             surround=elems_at_node(np,0)         !get number of surrounding elems
+             ne=elems_at_node(np,1)  !First element at this node
+             if(surround==1)then !only one element at this node so either a terminal or inlet
+                if(radius_type.eq.'taper')then !inlet radius needs to be defined
+                   if(elem_cnct(-1,0,ne).eq.0)then!Inlet as it has no parent need to set up radius into this vessel
+                      read(unit=10, fmt="(a)", iostat=ierror) ctemp1
+                      read(unit=10, fmt="(a)", iostat=ierror) ctemp1
+                      if(index(ctemp1, "version number")>0) then
+                         read(unit=10, fmt="(a)", iostat=ierror) ctemp1
+                      endif
+                      if(index(ctemp1, "value")> 0) then
+                         radius = get_final_real(ctemp1)
+                         elem_field(ne_radius_in,ne) = radius
+                      endif
+                   endif
+                endif
+                if(elem_cnct(-1,0,ne).eq.0)cycle      !No parent therefore inlet. Skip and go to the next
                 read(unit=10, fmt="(a)", iostat=ierror) ctemp1
+                read(unit=10, fmt="(a)", iostat=ierror) ctemp1
+                if(index(ctemp1, "version number")>0) then
+                   read(unit=10, fmt="(a)", iostat=ierror) ctemp1
+                endif
+                if(index(ctemp1, "value")> 0) then
+                   radius = get_final_real(ctemp1)
+                   if(radius_type.eq.'taper')then
+                      elem_field(ne_radius_out,ne) = radius
+                   else
+                      elem_field(ne_radius,ne) = radius
+                   endif
+                endif
+             elseif(surround.gt.1)then !Terminal airway - use first radius
+                read(unit=10, fmt="(a)", iostat=ierror) ctemp1
+                read(unit=10, fmt="(a)", iostat=ierror) ctemp1
+                read(unit=10, fmt="(a)", iostat=ierror) ctemp1
+                if(index(ctemp1, "value")> 0) then
+                   radius = get_final_real(ctemp1)
+                   if(radius_type.eq.'taper')then
+                      elem_field(ne_radius_out,ne) = radius
+                   else
+                      elem_field(ne_radius,ne) = radius
+                   endif
+                endif
              endif
-             if(index(ctemp1, "value")> 0) then
-                radius = get_final_real(ctemp1)
-                 if(radius_type.eq.'taper')then
-                   elem_field(ne_radius_out,ne)=constrict*radius
-                 else
-                  elem_field(ne_radius,ne)=constrict*radius
-                 endif
-             endif
-          elseif(surround.gt.1)then !Terminal airway - use first radius
-             read(unit=10, fmt="(a)", iostat=ierror) ctemp1
-             read(unit=10, fmt="(a)", iostat=ierror) ctemp1
-             read(unit=10, fmt="(a)", iostat=ierror) ctemp1
-             if(index(ctemp1, "value")> 0) then
-                radius = get_final_real(ctemp1)
-                  if(radius_type.eq.'taper')then
-                    elem_field(ne_radius_out,ne)=constrict*radius
-                  else
-                    elem_field(ne_radius,ne)=constrict*radius
-                  endif
-             endif
-          endif
-       endif !index
-       if(np.ge.num_nodes) exit read_a_node
-    end do read_a_node
+          endif !index
+          if(np.ge.num_nodes) exit read_a_node
+       end do read_a_node
 
-!If airway type calculate element volume
-    ! calculate the element volumes
-    do ne=1,num_elems
+    else ! for element_based field file
+
+       ne = 0
+       ne_counter = 0
+
+       read_an_elem : do !define a do loop name
+          !.......read element number
+          read(unit=10, fmt="(a)", iostat=ierror) ctemp1
+          if(index(ctemp1, "Element number")> 0) then
+             ne_global = get_final_integer(ctemp1) !get global element number
+             ne = get_local_elem_1d(ne_global) ! get local elem ne for global elem
+             if(ne.eq.0)then
+                write(*,'('' WARNING! no local element for global element'',i6)') ne_global
+                read(*,*)
+             endif
+             if(ne.gt.0)then
+                read(unit=10, fmt="(a)", iostat=ierror) ctemp1
+                if(index(ctemp1, "value")> 0) then
+                   radius = get_final_real(ctemp1)
+                   elem_field(ne_radius,ne) = radius
+                   elem_field(ne_radius_in,ne) = radius
+                   elem_field(ne_radius_out,ne) = radius
+                endif
+                ne_counter = ne_counter + 1
+             endif
+          endif !index
+          if(ne_counter.ge.num_elem_rad) exit read_an_elem
+       end do read_an_elem
+
+    endif
+
+!!! Calculate element volume
+    do ne = 1,num_elems
        if(radius_type.eq.'taper')then
-         if(elem_cnct(-1,0,ne).ne.0)then !radius in is radius of upstream vessel
-            elem_field(ne_radius_in,ne)=elem_field(ne_radius_out,elem_cnct(-1,1,ne))
-         endif
-         elem_field(ne_radius,ne)=(elem_field(ne_radius_in,ne)+elem_field(ne_radius_out,ne))/2
+          if(elem_cnct(-1,0,ne).ne.0)then !radius in is radius of upstream vessel
+             elem_field(ne_radius_in,ne)=elem_field(ne_radius_out, &
+                  elem_cnct(-1,1,ne))
+          endif
+          elem_field(ne_radius,ne)=(elem_field(ne_radius_in,ne)+ &
+               elem_field(ne_radius_out,ne))/2.0_dp
        endif
-       !       ne_global=elems(noelem)
        np1=elem_nodes(1,ne)
        np2=elem_nodes(2,ne)
        ! element volume
@@ -2230,95 +2501,139 @@ contains
             elem_field(ne_length,ne)
        elem_field(ne_a_A,ne) = 1.0_dp ! set default for ratio a/A
     enddo
+
     call enter_exit(sub_name,2)
 
-  END subroutine define_rad_from_file
-!
-!##################################################################################
-!
-!*define_rad_from_geom:* Defines vessel or airway radius based on their geometric structure
-  subroutine define_rad_from_geom(ORDER_SYSTEM, CONTROL_PARAM, START_FROM, START_RAD, group_type_in, group_option_in)
-  !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_DEFINE_RAD_FROM_GEOM" :: DEFINE_RAD_FROM_GEOM
+  end subroutine define_rad_from_file
 
-    character(LEN=100), intent(in) :: ORDER_SYSTEM,START_FROM
-   character(LEN=100), optional :: group_type_in, group_option_in
-   real(dp), intent(in) :: CONTROL_PARAM,START_RAD
-   !Input options ORDER_SYSTEM=STRAHLER (CONTROL_PARAM=RDS), HORSFIELD (CONTROL_PARAM=RDH)
+!!!#############################################################################
 
-   !Local variables
-   character(LEN=100) :: group_type, group_options
-   integer :: ne_min,ne_max,nindex,ne,n_max_ord,n,ne_start,&
-      inlet_count
-   real(dp) :: radius
-   character(len=60) :: sub_name
+  subroutine define_rad_from_geom(ORDER_SYSTEM, CONTROL_PARAM, START_FROM, &
+       USER_RAD, group_type_in, group_option_in)
+    !*define_rad_from_geom:* Defines vessel or airway radius based on
+    ! their geometric structure. For 'order_system' == 'strah' or 'horsf', uses a
+    ! user-defined maximum radius and branching ratio; for == 'fit', uses pre-
+    ! defined radii (read in) and a calculated branching ratio for each path so
+    ! that the order 1 branches have radius = USER_RAD.
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_DEFINE_RAD_FROM_GEOM" :: DEFINE_RAD_FROM_GEOM
 
-   sub_name = 'define_rad_from_geom'
+    real(dp), intent(in) :: CONTROL_PARAM
+    real(dp), intent(in) :: USER_RAD   ! radius of largest branch when order_system
+    !                                    =='strah' or 'horsf'; minimum radius when
+    !                                    order_system = 'fit'
+    character(LEN=*), intent(in) :: ORDER_SYSTEM,START_FROM
+    character(LEN=*), optional :: group_type_in, group_option_in
+    !Input options ORDER_SYSTEM=STRAHLER (CONTROL_PARAM=RDS), HORSFIELD (CONTROL_PARAM=RDH)
+    ! Local variables
+    integer :: inlet_count,n,ne,ne0,ne_max,ne_min,ne_start,nindex,norder,n_max_ord
+    real(dp) :: max_radius,radius,ratio_diameter
+    logical :: found
+    character(LEN=100) :: group_type, group_options
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'define_rad_from_geom'
     call enter_exit(sub_name,1)
+
     !define list of elements you are going to operate on
     if(present(group_type_in))then
-      group_type = group_type_in
+       group_type = group_type_in
     else!default to all
-      group_type='all'
+       group_type='all'
     endif
     if(group_type.eq.'all')then
        ne_min=1
        ne_max=num_elems
     elseif(group_type.eq.'efield')then
     elseif(group_type.eq.'list')then
-      read (START_FROM,'(I10)') ne_min
-      read (group_option_in,'(I10)') ne_max
+       read (START_FROM,'(I10)') ne_min
+       read (group_option_in,'(I10)') ne_max
     endif
     !Define start element
     if(START_FROM.eq.'inlet')then
-      inlet_count=0
-      do ne=ne_min,ne_max
-         if(elem_cnct(-1,0,ne).eq.0)then
-           inlet_count=inlet_count+1
-           ne_start=ne
-         endif
-         if(inlet_count.gt.1)then
-            WRITE(*,*) ' More than one inlet in this group, using last found, ne = ',ne
-         endif
-      enddo
+       inlet_count=0
+       do ne=ne_min,ne_max
+          if(elem_cnct(-1,0,ne).eq.0)then
+             inlet_count=inlet_count+1
+             ne_start=ne
+          endif
+          if(inlet_count.gt.1)then
+             write(*,'('' More than one inlet in this group, using last found, ne = '',i6)') ne
+          endif
+       enddo
     else!element number defined
        read (START_FROM,'(I10)') ne_start
     endif
 
-    !Strahler and Horsfield ordering system
-    if(ORDER_SYSTEM(1:5).EQ.'strah')THEN
-      nindex = no_sord !for Strahler ordering
-    else if(ORDER_SYSTEM(1:5).eq.'horsf')then
-      nindex = no_hord !for Horsfield ordering
-    endif
-
     ne=ne_start
-    n_max_ord=elem_ordrs(nindex,ne)
-    elem_field(ne_radius,ne)=START_RAD
 
-    do ne=ne_min,ne_max
-     radius=10.0_dp**(log10(CONTROL_PARAM)*dble(elem_ordrs(nindex,ne)-n_max_ord)&
-        +log10(START_RAD))
-     elem_field(ne_radius,ne)=radius
-     if(ne_radius_in.gt.0)then
-        elem_field(ne_radius_in,ne)=radius
-        elem_field(ne_radius_out,ne)=radius
-     endif
-    enddo
+    if(ORDER_SYSTEM(1:3).eq.'fit')then
+       nindex = no_hord ! default is Horsfield ordering; could be modified to either type
+       do ne = ne_min,ne_max
+          if(elem_field(ne_radius,ne).lt.USER_RAD)then
+             found = .false.
+             norder = elem_ordrs(nindex,ne)
+             ne0 = elem_cnct(-1,1,ne)
+             do while(.not.found)
+                if(elem_field(ne_radius,ne0).gt.USER_RAD)then
+                   found = .true.
+                   n_max_ord = elem_ordrs(nindex,ne0)
+                   max_radius = elem_field(ne_radius,ne0)
+                   ratio_diameter = 10.d0**(log10(USER_RAD/max_radius) &
+                        /dble(1-n_max_ord))
+                   radius = (10.0_dp**(log10(ratio_diameter)*dble(norder- &
+                        n_max_ord)+log10(2.0_dp*max_radius)))*0.5_dp
+                   elem_field(ne_radius,ne) = radius
+                   elem_field(ne_vol,ne) = pi*radius**2*elem_field(ne_length,ne)
+                else
+                   ne0 = elem_cnct(-1,1,ne0)
+                endif
+             enddo
+          endif
+       enddo
+
+    else
+
+       !Strahler and Horsfield ordering system
+       if(ORDER_SYSTEM(1:5).eq.'strah')THEN
+          nindex = no_sord !for Strahler ordering
+          elem_field(ne_radius,ne) = USER_RAD
+       else if(ORDER_SYSTEM(1:5).eq.'horsf')then
+          nindex = no_hord !for Horsfield ordering
+          elem_field(ne_radius,ne) = USER_RAD
+       endif
+       n_max_ord=elem_ordrs(nindex,ne)
+
+       do ne=ne_min,ne_max
+          radius = 10.0_dp**(log10(CONTROL_PARAM)*dble(elem_ordrs(nindex,ne) &
+               -n_max_ord)+log10(USER_RAD))
+          elem_field(ne_radius,ne)=radius
+          elem_field(ne_vol,ne) = pi*radius**2*elem_field(ne_length,ne)
+          if(ne_radius_in.gt.0)then
+             elem_field(ne_radius_in,ne)=radius
+             elem_field(ne_radius_out,ne)=radius
+          endif
+       enddo
+    endif
 
     call enter_exit(sub_name,2)
 
-  END subroutine define_rad_from_geom
-!
-!###########################################################################
-!
-!*element_connectivity_1d:*  Calculates element connectivity in 1D and stores in elelem_cnct
+  end subroutine define_rad_from_geom
+
+!!!#############################################################################
+
   subroutine element_connectivity_1d()
-  !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_ELEMENT_CONNECTIVITY_1D" :: ELEMENT_CONNECTIVITY_1D
+    !*element_connectivity_1d:*  Calculates element connectivity in 1D and
+    ! stores in array elem_cnct
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_ELEMENT_CONNECTIVITY_1D" :: ELEMENT_CONNECTIVITY_1D
 
     !     Local Variables
     integer :: ne,ne2,nn,noelem,np,np2,np1
     integer,parameter :: NNT=2
     character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
 
     sub_name = 'element_connectivity_1d'
     call enter_exit(sub_name,1)
@@ -2328,60 +2643,62 @@ contains
     ! calculate elems_at_node array: stores the elements that nodes are in
     elems_at_node(1:num_nodes,0) = 0 !initialise number of adjacent elements
 
-    DO ne=1,num_elems
-       DO nn=1,2
+    do ne=1,num_elems
+       do nn=1,2
           np=elem_nodes(nn,ne)
           elems_at_node(np,0)=elems_at_node(np,0)+1
           elems_at_node(np,elems_at_node(np,0))=ne ! local element that np is in
-       ENDDO !nn
-    ENDDO !noelem
+       enddo !nn
+    enddo !noelem
 
     ! calculate elem_cnct array: stores the connectivity of all elements
 
     elem_cnct=0 !initialise all elem_cnct
 
-    DO ne=1,num_elems
+    do ne=1,num_elems
        !     ne_global=elems(noelem)
-       IF(NNT == 2) THEN !1d
+       if(NNT == 2) THEN !1d
           np1=elem_nodes(1,ne) !first local node
           np2=elem_nodes(2,ne) !second local node
-          DO noelem=1,elems_at_node(np2,0)
+          do noelem=1,elems_at_node(np2,0)
              ne2=elems_at_node(np2,noelem)
-             IF(ne2 /= ne)THEN
+             if(ne2 /= ne)THEN
                 elem_cnct(-1,0,ne2)=elem_cnct(-1,0,ne2)+1
                 elem_cnct(-1,elem_cnct(-1,0,ne2),ne2)=ne !previous element
                 elem_cnct(1,0,ne)=elem_cnct(1,0,ne)+1
                 elem_cnct(1,elem_cnct(1,0,ne),ne)=ne2
-             ENDIF !ne2
-          ENDDO !noelem2
-
-       ENDIF
-    ENDDO
+             endif !ne2
+          enddo !noelem2
+       endif
+    enddo
 
     call enter_exit(sub_name,2)
 
-  END subroutine element_connectivity_1d
+  end subroutine element_connectivity_1d
 
-
-!
-!###########################################################################
-!
+!!!#############################################################################
 
   subroutine element_connectivity_2d
+    !*element_connectivity_2d:*  Calculates element connectivity in 2D and
+    ! stores in array elem_cnct_2d
 
-!!! calculates the connectivity of elements in each xi direction
-
-!!! local variables
+    ! Local variables
     integer :: ne,ne2,nn,np,noelem2,np_list(4),np_list_2(4)
     integer,parameter :: num_elem_nodes = 4
-    
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'element_connectivity_2d'
+    call enter_exit(sub_name,1)
+
     if(.not.allocated(elem_cnct_2d)) allocate(elem_cnct_2d(-2:2,0:10,num_elems_2d))
     if(.not.allocated(elems_at_node_2d)) allocate(elems_at_node_2d(num_nodes_2d,0:10))
 
-    ! calculate elems_at_node_2d array: stores the elements that nodes are in
-    
+!!! calculate elems_at_node_2d array: stores the elements that nodes are in
+
     elems_at_node_2d = 0 !initialise all
-    
+
     do ne = 1,num_elems_2d
        do nn = 1,num_elem_nodes
           np = elem_nodes_2d(nn,ne)
@@ -2389,11 +2706,11 @@ contains
           elems_at_node_2d(np,elems_at_node_2d(np,0)) = ne !element that np is in
        enddo !nn
     enddo !noelem
-    
-    ! calculate elem_cnct_2d array: stores the connectivity of all elements
-    
+
+!!! calculate elem_cnct_2d array: stores the connectivity of all elements
+
     elem_cnct_2d = 0 !initialise all elem_cnct_2d
-    
+
     do ne = 1,num_elems_2d ! for each of the 2d elements
        np_list(1:4) = elem_nodes_2d(1:4,ne) ! the list of nodes in the element (including repeated)
 !!! check the elements attached to the 1st node
@@ -2404,13 +2721,13 @@ contains
              if(np_list(2).ne.np_list(1))then ! only if first two nodes are not repeated
                 if(inlist(np_list(2),np_list_2))then
                    elem_cnct_2d(-2,0,ne) = elem_cnct_2d(-2,0,ne)+1
-                   elem_cnct_2d(-2,elem_cnct_2d(-2,0,ne),ne) = ne2 
+                   elem_cnct_2d(-2,elem_cnct_2d(-2,0,ne),ne) = ne2
                 endif
              endif
              if(np_list(3).ne.np_list(1))then ! only if the two nodes are not repeated
                 if(inlist(np_list(3),np_list_2))then
                    elem_cnct_2d(-1,0,ne) = elem_cnct_2d(-1,0,ne)+1
-                   elem_cnct_2d(-1,elem_cnct_2d(-1,0,ne),ne) = ne2 
+                   elem_cnct_2d(-1,elem_cnct_2d(-1,0,ne),ne) = ne2
                 endif
              endif
           endif
@@ -2422,35 +2739,41 @@ contains
              np_list_2(1:4) = elem_nodes_2d(1:4,ne2) !list of nodes in attached element
              if(np_list(2).ne.np_list(4))then ! only if two nodes are not repeated
                 if(inlist(np_list(2),np_list_2))then
-                   elem_cnct_2d(2,0,ne) = elem_cnct_2d(2,0,ne)+1
-                   elem_cnct_2d(2,elem_cnct_2d(2,0,ne),ne) = ne2 
+                   elem_cnct_2d(1,0,ne) = elem_cnct_2d(1,0,ne)+1
+                   elem_cnct_2d(1,elem_cnct_2d(1,0,ne),ne) = ne2
                 endif
              endif
              if(np_list(3).ne.np_list(4))then ! only if the two nodes are not repeated
                 if(inlist(np_list(3),np_list_2))then
-                   elem_cnct_2d(1,0,ne) = elem_cnct_2d(1,0,ne)+1
-                   elem_cnct_2d(1,elem_cnct_2d(1,0,ne),ne) = ne2 
+                   elem_cnct_2d(2,0,ne) = elem_cnct_2d(2,0,ne)+1
+                   elem_cnct_2d(2,elem_cnct_2d(2,0,ne),ne) = ne2
                 endif
              endif
           endif
        enddo !noelem2
     enddo
 
+    call enter_exit(sub_name,2)
+
   end subroutine element_connectivity_2d
 
-
-!!! ##########################################################################      
+!!!#############################################################################
 
   subroutine line_segments_for_2d_mesh(sf_option)
+    !*line_segments_for_2d_mesh:* set up the line segment arrays for a 2d mesh
 
-!!! sets up the line segment arrays for a 2d mesh
-    
     character(len=4),intent(in) :: sf_option
-!!! local variables
+    ! Local variables
     integer :: ne,ne_adjacent,ni1,nj,nl,nl_adj,npn(2)
     logical :: MAKE
     logical :: based_on_elems = .true.
-    
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'line_segments_for_2d_mesh'
+    call enter_exit(sub_name,1)
+
     if(.not.allocated(elem_lines_2d)) allocate(elem_lines_2d(4,num_elems_2d))
     if(.not.allocated(scale_factors_2d)) allocate(scale_factors_2d(16,num_elems_2d))
 
@@ -2479,20 +2802,20 @@ contains
           elem_lines_2d(2,ne) = 1 ! at this stage just to tag it for conditional above
           elem_lines_2d(4,ne) = 1 ! at this stage just to tag it for conditional above
        enddo !ne
-       
+
        elem_lines_2d = 0
-       
+
        if(.not.allocated(lines_2d)) allocate(lines_2d(0:num_lines_2d))
        if(.not.allocated(line_versn_2d)) allocate(line_versn_2d(2,3,num_lines_2d))
        if(.not.allocated(lines_in_elem)) allocate(lines_in_elem(0:4,num_lines_2d))
        if(.not.allocated(nodes_in_line)) allocate(nodes_in_line(3,0:3,num_lines_2d))
-       if(.not.allocated(arclength)) allocate(arclength(3,num_lines_2d)) 
+       if(.not.allocated(arclength)) allocate(arclength(3,num_lines_2d))
        lines_in_elem=0
        lines_2d=0
        nodes_in_line=0
        line_versn_2d=0
        num_lines_2d = 0 ! reset to zero for loop below
-       
+
 !!! Now run through the same as above, and set up the arrays
        do ne=1,num_elems_2d
           !check whether to make a line
@@ -2524,7 +2847,7 @@ contains
              ne_adjacent=elem_cnct_2d(-1,1,ne)
              elem_lines_2d(3,ne)=elem_lines_2d(4,ne_adjacent)
           endif
-          
+
           !check whether to make a line
           MAKE=.FALSE.
           if(elem_cnct_2d(-2,0,ne) == 0) MAKE=.TRUE. !exterior, make line
@@ -2565,16 +2888,16 @@ contains
                    endif
                 endif
              enddo
-!             elem_lines_2d(1,ne)=elem_lines_2d(2,ne_adjacent)
+             !             elem_lines_2d(1,ne)=elem_lines_2d(2,ne_adjacent)
           endif
-          
-          !*! new:       
+
+          !*! new:
           MAKE=.TRUE.
           ne_adjacent=elem_cnct_2d(1,1,ne)
           if(ne_adjacent.gt.0)then
              if(elem_lines_2d(3,ne_adjacent) /= 0) MAKE=.FALSE.
           endif
-          
+
           if(MAKE)then
              num_lines_2d=num_lines_2d+1
              lines_2d(num_lines_2d)=num_lines_2d !record a new line number
@@ -2597,13 +2920,13 @@ contains
              ne_adjacent=elem_cnct_2d(1,1,ne)
              elem_lines_2d(4,ne)=elem_lines_2d(3,ne_adjacent)
           endif
-          
+
           MAKE=.TRUE.
           ne_adjacent=elem_cnct_2d(2,1,ne)
           if(ne_adjacent.gt.0)then
              if(elem_lines_2d(1,ne_adjacent) /= 0) MAKE=.FALSE.
           endif
-          
+
           if(MAKE)then
              num_lines_2d = num_lines_2d+1
              lines_2d(num_lines_2d) = num_lines_2d !record a new line number
@@ -2626,130 +2949,123 @@ contains
              ne_adjacent=elem_cnct_2d(2,1,ne)
              elem_lines_2d(2,ne)=elem_lines_2d(1,ne_adjacent)
           endif
-          
        enddo !ne
     endif
 
     call calc_scale_factors_2d(sf_option)
-    
+
+    call enter_exit(sub_name,2)
+
   end subroutine line_segments_for_2d_mesh
 
+!!!#############################################################################
 
-!
-!###################################################################################
-!
-!*evaluate_ordering:* calculates generations, Horsfield orders, Strahler orders for a given tree
   subroutine evaluate_ordering()
-  !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_EVALUATE_ORDERING" :: EVALUATE_ORDERING
+    !*evaluate_ordering:* calculates generations, Horsfield orders,
+    ! Strahler orders for a given tree
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_EVALUATE_ORDERING" :: EVALUATE_ORDERING
 
-    integer :: INLETS,ne,ne0,ne2,noelem2,np,np2,nn, &
-         num_attach,n_children,n_generation, &
-         n_horsfield,OUTLETS,STRAHLER,STRAHLER_ADD,temp1
+    ! Local Variables
+    integer :: INLETS,ne,ne0,ne2,noelem2,np,np2,nn,num_attach,n_children, &
+         n_generation,n_horsfield,OUTLETS,STRAHLER,STRAHLER_ADD,temp1
     LOGICAL :: DISCONNECT,DUPLICATE
     character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
     sub_name = 'evaluate_ordering'
     call enter_exit(sub_name,1)
 
-    !Calculate generations, Horsfield orders, Strahler orders
-    !.....Calculate branch generations
-
-    ! Initialise memory to zero.
-    do nn=1,num_ord
-      do ne=1,num_elems
-        elem_ordrs(nn,ne) = 0
-      enddo
-    enddo
-
+!!! Calculate branch generations
+    elem_ordrs = 0
     maxgen=1
-    DO ne=1,num_elems
+    do ne=1,num_elems
        ne0=elem_cnct(-1,1,ne) !parent
-       IF(ne0.NE.0)THEN
+       if(ne0.NE.0)THEN
           n_generation=elem_ordrs(1,ne0) !parent generation
-          IF(elem_cnct(1,0,ne0).EQ.1)THEN !single daughter
+          if(elem_cnct(1,0,ne0).EQ.1)THEN !single daughter
              elem_ordrs(1,ne)=n_generation + (elem_symmetry(ne)-1)
-          ELSE IF(elem_cnct(1,0,ne0).GE.2)THEN
+          else if(elem_cnct(1,0,ne0).GE.2)THEN
              elem_ordrs(1,ne)=n_generation+1
-          ENDIF
-       ELSE
+          endif
+       else
           elem_ordrs(1,ne)=1 !generation 1
-       ENDIF
+       endif
        maxgen=max(maxgen,elem_ordrs(1,ne))
-    ENDDO !noelem
+    enddo !noelem
 
-    !.....Calculate the branch orders
-    DO ne=num_elems,1,-1
+!!! Calculate the branch orders
+    do ne=num_elems,1,-1
        n_horsfield=MAX(elem_ordrs(2,ne),1)
        n_children=elem_cnct(1,0,ne) !number of child branches
-       IF(n_children.EQ.1)THEN
-          IF(elem_ordrs(1,elem_cnct(1,1,ne)).EQ.0)  n_children=0
-       ENDIF
+       if(n_children.EQ.1)THEN
+          if(elem_ordrs(1,elem_cnct(1,1,ne)).EQ.0)  n_children=0
+       endif
        STRAHLER=0
        STRAHLER_ADD=1
-       IF(n_children.GE.2)THEN !branch has two or more daughters
+       if(n_children.GE.2)THEN !branch has two or more daughters
           STRAHLER=elem_ordrs(3,elem_cnct(1,1,ne)) !first daughter
-          DO noelem2=1,n_children !for all daughters
+          do noelem2=1,n_children !for all daughters
              ne2=elem_cnct(1,noelem2,ne) !global element # of daughter
              temp1=elem_ordrs(2,ne2) !Horsfield order of daughter
-             IF(temp1.GT.n_horsfield)then
-               n_horsfield=temp1
+             if(temp1.GT.n_horsfield)then
+                n_horsfield=temp1
              endif
-             IF(elem_ordrs(3,ne2).LT.STRAHLER)THEN
+             if(elem_ordrs(3,ne2).LT.STRAHLER)THEN
                 STRAHLER_ADD=0
-             ELSE IF(elem_ordrs(3,ne2).GT.STRAHLER)THEN
+             else if(elem_ordrs(3,ne2).GT.STRAHLER)THEN
                 STRAHLER_ADD=0
                 STRAHLER=elem_ordrs(3,ne2) !highest daughter
-             ENDIF
-          ENDDO !noelem2 (ne2)
+             endif
+          enddo !noelem2 (ne2)
           n_horsfield=n_horsfield+1 !Horsfield ordering
-       ELSE IF(n_children.EQ.1)THEN
+       else if(n_children.EQ.1)THEN
           ne2=elem_cnct(1,1,ne) !local element # of daughter
           n_horsfield=elem_ordrs(2,ne2)+(elem_symmetry(ne)-1)
-
           STRAHLER_ADD=elem_ordrs(3,ne2)+(elem_symmetry(ne)-1)
-       ENDIF !elem_cnct
+       endif !elem_cnct
        elem_ordrs(2,ne)=n_horsfield !store the Horsfield order
        elem_ordrs(3,ne)=STRAHLER+STRAHLER_ADD !Strahler order
-    ENDDO !noelem
+    enddo !noelem
 
-    !       Check for disconnected nodes and number of inlets and outlets
+!!! Check for disconnected nodes and number of inlets and outlets
     DUPLICATE=.FALSE.
-    DO ne=1,num_elems
+    do ne=1,num_elems
        np=elem_nodes(1,ne)
        np2=elem_nodes(2,ne)
-       IF(np.EQ.np2)THEN
+       if(np.EQ.np2)THEN
           DUPLICATE=.TRUE.
-       ENDIF
-    ENDDO
+       endif
+    enddo
 
     DISCONNECT=.FALSE.
     INLETS=0
     OUTLETS=0
-    DO np=1,num_nodes
+    do np=1,num_nodes
        num_attach=elems_at_node(np,0)
-       IF(num_attach.EQ.0)THEN
+       if(num_attach.EQ.0)THEN
           DISCONNECT=.TRUE.
-       ELSEIF(num_attach.EQ.1)THEN
+       elseif(num_attach.EQ.1)THEN
           ne=elems_at_node(np,1)
-          IF(elem_cnct(1,0,ne).EQ.0) OUTLETS=OUTLETS+1
-         IF(elem_cnct(-1,0,ne).EQ.0) INLETS=INLETS+1
-       ELSEIF(num_attach.GT.3)THEN
+          if(elem_cnct(1,0,ne).EQ.0) OUTLETS=OUTLETS+1
+          if(elem_cnct(-1,0,ne).EQ.0) INLETS=INLETS+1
+       elseif(num_attach.GT.3)THEN
           WRITE(*,*) ' Node ',np,' attached to',num_attach,' elements'
-       ENDIF
-    ENDDO
+       endif
+    enddo
 
     call enter_exit(sub_name,2)
 
   end subroutine evaluate_ordering
-!
-!###################################################################################
-!
-!>*set_initial_volume:* assigns a volume to terminal units appended on a tree structure
-!>based on an assumption of a linear gradient in the gravitational direction with max
-!> min and COV values defined.
-  subroutine set_initial_volume(Gdirn,COV,total_volume,Rmax,Rmin)
-  !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_SET_INITIAL_VOLUME" :: SET_INITIAL_VOLUME
 
-    !     Parameter List
+!!!#############################################################################
+
+  subroutine set_initial_volume(Gdirn,COV,total_volume,Rmax,Rmin)
+    !*set_initial_volume:* assigns a volume to terminal units appended on a
+    ! tree structure based on an assumption of a linear gradient in the
+    ! gravitational direction with max, min, and COV values defined.
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_SET_INITIAL_VOLUME" :: SET_INITIAL_VOLUME
+
     integer,intent(in) :: Gdirn
     real(dp),intent(in) :: COV,total_volume,Rmax,Rmin
     !     Local parameters
@@ -2758,9 +3074,11 @@ contains
          volume_estimate,volume_of_tree,Vmax,Vmin,Xi
     character(len=60) :: sub_name
 
+    ! --------------------------------------------------------------------------
+
     sub_name = 'set_initial_volume'
     call enter_exit(sub_name,1)
-    
+
     volume_estimate = 1.0_dp
     volume_of_tree = 0.0_dp
 
@@ -2781,8 +3099,8 @@ contains
        min_z=MIN(min_z,node_xyz(Gdirn,np2))
     enddo !nunit
 
-    range_z=DABS(max_z-min_z)
-    if(DABS(range_z).le.1.0e-5_dp) range_z=1.0_dp
+    range_z=abs(max_z-min_z)
+    if(abs(range_z).le.1.0e-5_dp) range_z=1.0_dp
 
 !!! for each elastic unit allocate a size based on a gradient in the Gdirn direction, and
 !!! perturb by a user-defined COV. This should be calling a random number generator.
@@ -2791,7 +3109,7 @@ contains
        np2=elem_nodes(2,ne) !end node
        Xi=(node_xyz(Gdirn,np2)-min_z)/range_z
        random_number=random_number+0.1_dp
-       IF(random_number.GT.1.0_dp) random_number=-1.1_dp
+       if(random_number.GT.1.0_dp) random_number=-1.1_dp
        unit_field(nu_vol,nunit)=(Vmax*Xi+Vmin*(1.0_dp-Xi))*(1.0_dp+COV*random_number)
        unit_field(nu_vt,nunit)=0.0_dp !initialise the tidal volume to a unit
     enddo !nunit
@@ -2811,18 +3129,20 @@ contains
 
   end subroutine set_initial_volume
 
-!
-!###################################################################################
-!
-!*volume_of_mesh:* calculates the volume of an airway mesh including conducting and respiratory airways
+!!!#############################################################################
+
   subroutine volume_of_mesh(volume_model,volume_tree)
-  !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_VOLUME_OF_MESH" :: VOLUME_OF_MESH
+    !*volume_of_mesh:* calculates the volume of an airway mesh including
+    ! conducting and respiratory airways
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_VOLUME_OF_MESH" :: VOLUME_OF_MESH
 
     real(dp) :: volume_model,volume_tree
     !     Local Variables
     integer :: ne,ne0,nunit
     real(dp),allocatable :: vol_anat(:),vol_below(:)
     character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
 
     sub_name = 'volume_of_mesh'
     call enter_exit(sub_name,1)
@@ -2833,19 +3153,23 @@ contains
     vol_anat = elem_field(ne_vol,1:num_elems) !initialise to branch volume
     vol_below = elem_field(ne_vol,1:num_elems) !initialise to branch volume
 
-    do nunit=1,num_units
-       ne=units(nunit)
-       vol_below(ne) = vol_below(ne) + unit_field(nu_vol,nunit) !add elastic unit volume
+    do nunit = 1,num_units
+       ne = units(nunit)
+       if(ne.ne.0) vol_below(ne) = vol_below(ne) + unit_field(nu_vol,nunit) !add elastic unit volume
     enddo !nunit
 
-    do ne=num_elems,2,-1
-       ne0=elem_cnct(-1,1,ne)
-       vol_anat(ne0) = vol_anat(ne0) + DBLE(elem_symmetry(ne))*vol_anat(ne)
-       vol_below(ne0) = vol_below(ne0) + DBLE(elem_symmetry(ne))*vol_below(ne)
+    do ne = num_elems,2,-1
+       ne0 = elem_cnct(-1,1,ne)
+!!! don't include the respiratory airways (already included via lumped units). multiply
+!!! by the element type (0 for respiratory) to account for this
+       vol_anat(ne0) = vol_anat(ne0) + dble(elem_symmetry(ne))*dble(elem_ordrs(no_type,ne))*vol_anat(ne)
+       vol_below(ne0) = vol_below(ne0) + dble(elem_symmetry(ne))*dble(elem_ordrs(no_type,ne))*vol_below(ne)
     enddo !noelem
 
-    volume_model = vol_below(1)
-    volume_tree = vol_anat(1)
+    elem_field(ne_vd_bel,:) = vol_anat(:)
+    elem_field(ne_vol_bel,:) = vol_below(:)
+    volume_model = elem_field(ne_vol_bel,1)
+    volume_tree = elem_field(ne_vd_bel,1)
 
     deallocate(vol_anat)
     deallocate(vol_below)
@@ -2854,18 +3178,118 @@ contains
 
   end subroutine volume_of_mesh
 
-!
-!###################################################################################
-!
-!>get_final_real
-  
-  function get_final_real(string)
+!!!#############################################################################
 
-    character :: string*(*)
+  subroutine write_geo_file(type, filename)
+    !*write_geo_file:* converts a surface mesh (created using make_2d_vessel_from_1d)
+    ! into a gmsh formatted mesh and writes to file.
+    ! options on 'type': 1== single layered surface mesh of the vessel wall
+    !                    2== double-layered thick-walled volume mesh of vessel wall
+    !                    3== volume mesh of vessel lumen
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_WRITE_GEO_FILE" :: WRITE_GEO_FILE
+
+    integer,intent(in) :: type
+    character(len=*),intent(in) :: filename
+    !     Local parameters
+    integer :: j, ncount_loop = 0, ncount_point = 0, ncount_spline = 0, &
+         nl_offset,np,np_offset
+    integer,parameter :: ifile = 10
+    integer,allocatable :: element_spline(:,:),elem_surfaces(:,:)
+    real(dp),parameter :: lc0 = 1.0_dp, lc1 = 1.0_dp
+    real(dp),allocatable :: node_xyz_offset(:,:)
+    character(len=200) :: opfile
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'write_geo_file'
+    call enter_exit(sub_name,1)
+
+    opfile = trim(filename)//'.geo'
+    open(10, file=opfile, status='replace')
+
+    write(ifile,'(''/***********************'')')
+    write(ifile,'(''*'')')
+    write(ifile,'(''* Conversion of LungSim to GMSH'')')
+    write(ifile,'(''*'')')
+    write(ifile,'(''***********************/'')')
+
+    write(ifile,'(/''lc ='',f8.4,'';'')') lc0
+    write(ifile,'(/''sc ='',f8.4,'';'')') lc1
+    write(ifile,'(/)')
+
+    allocate(element_spline(4,num_elems_2d*2))
+    allocate(elem_surfaces(5,num_elems_2d))
+    element_spline = 0
+    elem_surfaces = 0
+    ncount_spline = 0
+    np_offset = 0
+
+    if(type.eq.1)then
+!!! write out a surface mesh that describes a structured vessel surface
+       call write_surface_geo(element_spline,elem_surfaces,ifile,ncount_point, &
+            ncount_loop,ncount_spline,np_offset)
+
+    else if(type.eq.2)then
+!!! write out a volume that encloses a thick-walled vessel tree. Make a gmsh .geo file
+!!! for the surface of the tree, then copy, scale, and translate to get an 'outer shell'.
+!!! Join the inner and outer shells at the entry and exits.
+
+       allocate(node_xyz_offset(3,num_nodes_2d))
+       node_xyz_offset = 0.0_dp
+       call write_surface_geo(element_spline,elem_surfaces,ifile,ncount_point, &
+            ncount_loop,ncount_spline,np_offset)
+       call geo_node_offset(node_xyz_offset)
+
+       do np = 1,num_nodes_2d
+          forall (j = 1:3) node_xyz_2d(1,1,j,np) = node_xyz_2d(1,1,j,np) &
+               + node_xyz_offset(j,np)
+       enddo
+       np_offset = ncount_point
+       nl_offset = ncount_spline
+       call write_surface_geo(element_spline,elem_surfaces,ifile,ncount_point, &
+            ncount_loop,ncount_spline,np_offset)
+       do np = 1,num_nodes_2d
+          forall (j = 1:3) node_xyz_2d(1,1,j,np) = node_xyz_2d(1,1,j,np) &
+               - node_xyz_offset(j,np)
+       enddo
+       ! cap the entry and exits
+       call geo_entry_exit_cap(element_spline,ifile,ncount_loop, &
+            ncount_spline,np_offset,nl_offset)
+       deallocate(node_xyz_offset)
+
+    else if(type.eq.3)then
+!!! write out a volume mesh for the vessel lumen, where the vessel surface mesh is the
+!!! exterior. Make a .gmsh file that includes the vessel surfaces, surfaces that join to a vessel
+!!! centreline, and surfaces that 'cap' each vessel segment entry and exit.
+
+       call write_surface_geo(element_spline,elem_surfaces,ifile,ncount_point, &
+            ncount_loop,ncount_spline,np_offset)
+       call write_3d_geo(element_spline,elem_surfaces,ifile,ncount_point, &
+            ncount_loop,ncount_spline)
+    endif
+
+    deallocate(element_spline)
+    deallocate(elem_surfaces)
+    close(ifile)
+
+    call enter_exit(sub_name,2)
+
+  end subroutine write_geo_file
+
+!!!#############################################################################
+
+  function get_final_real(string)
+    !*get_final_real:* gets the last real number on a string
+
+    character,intent(in) :: string*(*)
+    ! Local parameters
     integer :: ibeg,iend
     real(dp) :: rsign,rtemp,get_final_real
     character :: sub_string*(40)
-    
+
+    ! --------------------------------------------------------------------------
+
     iend=len(string) !get the length of the string
     ibeg=index(string,":")+1 !get location of real in string
     sub_string = adjustl(string(ibeg:iend)) ! get the characters beyond :
@@ -2877,25 +3301,32 @@ contains
        rsign=1.0_dp
        ibeg=1
     endif
-   
+
     read (sub_string(ibeg:iend), * ) rtemp !get real value
     rtemp=rtemp*rsign !apply sign to number
-    
+
     get_final_real=rtemp !return the real value
-    
+
   end function get_final_real
 
-!
-!###################################################################################
-!
-!*get_final_string*
-  subroutine get_final_string(string,rtemp)
+!!!#############################################################################
 
-    character, intent(in) :: string*(132)
+  subroutine get_final_string(string,rtemp)
+    !*get_final_string:* gets the last set of characters surrounded
+    !  by whitespace in a string
+
+    character, intent(in) :: string*(*)
+    ! Local parameters
     integer :: ibeg,iend
     real(dp), intent(out) :: rtemp
     real(dp) :: rsign
     character :: sub_string*(40)
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'get_final_string'
+    call enter_exit(sub_name,1)
 
     iend=len(string) !get the length of the string
     ibeg=index(string,":")+1 !get location of real in string
@@ -2911,19 +3342,26 @@ contains
     read (sub_string(ibeg:iend), '(D25.17)' ) rtemp !get real value
     rtemp=rtemp*rsign !apply sign to number
 
+    call enter_exit(sub_name,2)
+
   end subroutine get_final_string
 
-!
-!###################################################################################
-!
-!*get_local_node*
+!!!#############################################################################
+
   subroutine get_local_node(np_global,np_local)
+    !*get_local_node:* gets the local node number for a given global node
 
     integer,intent(in) :: np_global
     integer,intent(out) :: np_local
-
+    ! Local parameters
     integer :: np
     logical :: found
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'get_local_node'
+    call enter_exit(sub_name,1)
 
     np=1
     found=.false.
@@ -2940,119 +3378,271 @@ contains
     enddo
 
     np_local = np
-    return
+
+    call enter_exit(sub_name,2)
 
   end subroutine get_local_node
 
+!!!#############################################################################
 
-!
-!###################################################################################
-!
-!*group_elem_parent_term*
-   subroutine group_elem_parent_term(ne_parent)
+  subroutine geo_entry_exit_cap(element_spline,ifile,ncount_loop, &
+       ncount_spline,np_offset,nl_offset)
+
+    integer,intent(in) :: element_spline(:,:),ifile,np_offset,nl_offset
+    integer :: ncount_loop,ncount_spline
+    ! Local variables
+    integer :: k,line1,line2,line3,line4,ne,np1,np2
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'geo_entry_exit_cap'
+    call enter_exit(sub_name,1)
+
+    ne = 1
+    do while (ne.le.num_elems_2d)
+
+       if(elem_cnct_2d(-2,0,ne).eq.0)then
+          do k = 0,3
+             np1 = elem_nodes_2d(1,ne+k)
+             np2 = np1 + np_offset
+             ncount_spline = ncount_spline + 1
+             write(10,'(''Line('',I8,'') = {'',I8,'','',I8,''};'')') &
+                  ncount_spline,np1,np2
+          enddo
+          do k = 0,3
+             line1 = element_spline(1,ne+k) - nl_offset
+             line3 = -element_spline(1,ne+k)
+             if(k.lt.3)then
+                line2 = ncount_spline + k - 2
+                line4 = -(line2 - 1)
+             else
+                line2 = ncount_spline - 3 ! first new line
+                line4 = -ncount_spline
+             endif
+             ncount_loop = ncount_loop + 1
+             write(ifile,'(''Line Loop('',i8,'') = {'',i8,'','',i8, &
+                  &'','',i8,'','',i8,''};'')') &
+                  ncount_loop, line1, line2, line3, line4
+             ncount_loop = ncount_loop + 1
+             write(ifile,'(''Surface('',I8,'') = {'',I8,''};'')') &
+                  ncount_loop, ncount_loop - 1
+          enddo
+       endif
+
+       if(elem_cnct_2d(2,0,ne).eq.0)then
+          do k = 0,3
+             np1 = elem_nodes_2d(3,ne+k)
+             np2 = np1 + np_offset
+             ncount_spline = ncount_spline + 1
+             write(10,'(''Line('',I8,'') = {'',I8,'','',I8,''};'')') &
+                  ncount_spline,np1,np2
+          enddo
+          do k = 0,3
+             line1 = -element_spline(3,ne+k) - nl_offset
+             line3 = -element_spline(3,ne+k)
+             if(k.lt.3)then
+                line2 = ncount_spline + k - 2
+                line4 = -(line2 - 1)
+             else
+                line2 = ncount_spline - 3 ! first new line
+                line4 = -ncount_spline
+             endif
+             ncount_loop = ncount_loop + 1
+             write(ifile,'(''Line Loop('',i8,'') = {'',i8,'','',i8,'','' &
+                  &,i8,'','',i8,''};'')') &
+                  ncount_loop, line1, line2, line3, line4
+             ncount_loop = ncount_loop + 1
+             write(ifile,'(''Surface('',I8,'') = {'',I8,''};'')') &
+                  ncount_loop, ncount_loop - 1
+          enddo
+       endif
+
+       ne = ne + 4
+    enddo
+
+    call enter_exit(sub_name,2)
+
+  end subroutine geo_entry_exit_cap
+
+!!!#############################################################################
+
+  subroutine geo_node_offset(node_xyz_offset)
+
+    real(dp) :: node_xyz_offset(:,:)
+    ! Local variables
+    integer:: j,k,ne,np1
+    real(dp) :: point_temp(3),point_xyz_centre(3),wall_thickness
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'geo_node_offset'
+    call enter_exit(sub_name,1)
+
+    ne = 1
+    do while (ne.le.num_elems_2d)
+
+!!!....nodes at model entry
+       if(elem_cnct_2d(-2,0,ne).eq.0)then
+          point_xyz_centre(:) = 0.0_dp
+          do k = 0,3
+             np1 = elem_nodes_2d(1,ne+k)
+             forall (j = 1:3) point_xyz_centre(j) = point_xyz_centre(j) + &
+                  0.25_dp * node_xyz_2d(1,1,j,np1)
+          enddo
+          point_temp(1:3) = node_xyz_2d(1,1,1:3,elem_nodes_2d(1,ne)) ! location of first ring node
+          wall_thickness = &
+               0.2_dp * distance_between_points(point_xyz_centre,point_temp)
+          do k = 0,3
+             np1 = elem_nodes_2d(1,ne+k)
+             point_temp(1:3) = node_xyz_2d(1,1,1:3,np1)
+             node_xyz_offset(:,np1) = wall_thickness * &
+                  direction_point_to_point(point_xyz_centre,point_temp)
+          enddo  ! k
+       endif  ! elem_cnct
+
+!!!....nodes at Xi2=1 ends of 'rings'
+       point_xyz_centre(:) = 0.0_dp
+       do k = 0,3
+          np1 = elem_nodes_2d(3,ne+k)
+          forall (j = 1:3) point_xyz_centre(j) = point_xyz_centre(j) &
+               + 0.25_dp * node_xyz_2d(1,1,j,np1)
+       enddo
+       point_temp(1:3) = node_xyz_2d(1,1,1:3,elem_nodes_2d(3,ne)) ! location of first ring node
+       wall_thickness = 0.2_dp * &
+            distance_between_points(point_xyz_centre,point_temp)
+       do k = 0,3
+          np1 = elem_nodes_2d(3,ne+k)
+          point_temp(1:3) = node_xyz_2d(1,1,1:3,np1)
+          node_xyz_offset(:,np1) = wall_thickness * &
+               direction_point_to_point(point_xyz_centre,point_temp)
+       enddo  ! k
+
+!!!....check for crux node
+       if(node_versn_2d(elem_nodes_2d(3,ne)).eq.6.or. &
+            node_versn_2d(elem_nodes_2d(4,ne)).eq.6)then
+          np1 = elem_nodes_2d(3,ne+3) + 1   ! number of crux node
+          point_temp(1:3) = node_xyz_2d(1,1,1:3,np1)
+          node_xyz_offset(:,np1) =  wall_thickness * &
+               direction_point_to_point(point_xyz_centre,point_temp)
+       endif
+
+       ne = ne + 4
+
+    enddo ! while (ne.le.num_elems_2d)
+
+    call enter_exit(sub_name,2)
+
+  end subroutine geo_node_offset
+
+!!!#############################################################################
+
+  subroutine group_elem_parent_term(ne_parent)
+    !*group_elem_parent_term:* group the terminal elements that sit distal to
+    !  a given parent element (ne_parent)
     !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_GROUP_ELEM_PARENT_TERM" :: GROUP_ELEM_PARENT_TERM
 
-   ! Parameters
-   integer,intent(in) :: ne_parent  ! Number of element that feed that specific area
+    integer,intent(in) :: ne_parent  ! the parent element number
+    ! Local Variables
+    integer :: ne,ne_count,noelem,num_parents
+    integer,allocatable :: templist(:)
+    character(len=60) :: sub_name
 
-   ! Local Variables
-   integer :: ne,ne_count,noelem,num_parents
-   integer,allocatable :: templist(:)
-   character(len=60) :: sub_name='group_elem_parent_term'
+    ! --------------------------------------------------------------------------
 
-   call enter_exit(sub_name,1)
+    sub_name = 'group_elem_parent_term'
+    call enter_exit(sub_name,1)
 
-   allocate(templist(num_elems))
-   if(.not.allocated(parentlist)) allocate(parentlist(num_elems))
+    allocate(templist(num_elems))
+    if(.not.allocated(parentlist)) allocate(parentlist(num_elems))
 
-   !reset the list of parent elements to zero
-   call group_elem_by_parent(ne_parent,templist)
+    !reset the list of parent elements to zero
+    call group_elem_by_parent(ne_parent,templist)
 
-   ne_count=count(templist.ne.0)
-   num_parents=0
-   parentlist=0
+    ne_count=count(templist.ne.0)
+    num_parents=0
+    parentlist=0
 
-   do noelem=1,ne_count
-     ne = templist(noelem)
-     if(elem_cnct(1,0,ne).eq.0)then
-        num_parents=num_parents+1
-        parentlist(num_parents)=ne
-     endif !elem_cnct
-   enddo !noelem
+    do noelem=1,ne_count
+       ne = templist(noelem)
+       if(elem_cnct(1,0,ne).eq.0)then
+          num_parents=num_parents+1
+          parentlist(num_parents)=ne
+       endif !elem_cnct
+    enddo !noelem
 
-   deallocate(templist)
+    deallocate(templist)
 
-   call enter_exit(sub_name,2)
+    call enter_exit(sub_name,2)
 
-   end subroutine group_elem_parent_term
-!
-!###################################################################################
-!
-!*group_elem_by_parent*
-   subroutine group_elem_by_parent(ne_parent,elemlist)
+  end subroutine group_elem_parent_term
 
-   ! Parameters
-   integer,intent(in) :: ne_parent  ! Number of element that feed that specific area
-   integer :: elemlist(:)
+!!!#############################################################################
 
-   ! Local Variables
-   integer :: nt_bns,ne_count,num_nodes,m,n,ne0
-   integer,allocatable :: ne_old(:),ne_temp(:)
-   character(len=60) :: sub_name='group_elem_by_parent'
+  subroutine group_elem_by_parent(ne_parent,elemlist)
+    !*group_elem_by_parent:* group elements that sit distal to a given
+    ! parent element (ne_parent)
 
-   call enter_exit(sub_name,1)
+    integer,intent(in) :: ne_parent  ! the parent element number
+    integer :: elemlist(:)
+    ! Local Variables
+    integer :: nt_bns,ne_count,num_nodes,m,n,ne0
+    integer,allocatable :: ne_old(:),ne_temp(:)
+    character(len=60) :: sub_name
 
-   elemlist = 0
-   allocate(ne_old(size(elemlist)))
-   allocate(ne_temp(size(elemlist)))
+    ! --------------------------------------------------------------------------
 
-   nt_bns=1
-   ne_old(1) = ne_parent
-   ne_count = 1
-   elemlist(ne_count)=ne_parent
+    sub_name='group_elem_by_parent'
+    call enter_exit(sub_name,1)
 
-   do while(nt_bns.ne.0)
-     num_nodes=nt_bns
-     nt_bns=0
-     do m=1,num_nodes
-       ne0=ne_old(m) !parent global element number
-       do n=1,elem_cnct(1,0,ne0) !for each daughter branch
-         nt_bns=nt_bns+1
-         ne_temp(nt_bns)=elem_cnct(1,n,ne0)
+    elemlist = 0
+    allocate(ne_old(size(elemlist)))
+    allocate(ne_temp(size(elemlist)))
+
+    nt_bns=1
+    ne_old(1) = ne_parent
+    ne_count = 1
+    elemlist(ne_count)=ne_parent
+
+    do while(nt_bns.ne.0)
+       num_nodes=nt_bns
+       nt_bns=0
+       do m=1,num_nodes
+          ne0=ne_old(m) !parent global element number
+          do n=1,elem_cnct(1,0,ne0) !for each daughter branch
+             nt_bns=nt_bns+1
+             ne_temp(nt_bns)=elem_cnct(1,n,ne0)
+          enddo !n
+       enddo !m
+       do n=1,nt_bns
+          ne_old(n)=ne_temp(n) !updates list of previous generation element numbers
+          ne_count=ne_count+1
+          elemlist(ne_count)=ne_temp(n)
        enddo !n
-     enddo !m
-     do n=1,nt_bns
-       ne_old(n)=ne_temp(n) !updates list of previous generation element numbers
-       ne_count=ne_count+1
-       elemlist(ne_count)=ne_temp(n)
-     enddo !n
-   enddo !while
+    enddo !while
 
-   deallocate(ne_old)
-   deallocate(ne_temp)
+    deallocate(ne_old)
+    deallocate(ne_temp)
 
-   call enter_exit(sub_name,2)
+    call enter_exit(sub_name,2)
 
-   end subroutine group_elem_by_parent
+  end subroutine group_elem_by_parent
 
-!
-!###################################################################################
-!
-   
-!
-!#####################################################################
-!
-!*reallocate_node_elem_arrays:* Reallocates the size of geometric arrays when modifying geometries
+!!!#############################################################################
+
   subroutine reallocate_node_elem_arrays(num_elems_new,num_nodes_new)
+    !*reallocate_node_elem_arrays:* Reallocates the size of geometric
+    ! arrays when modifying geometries
 
-!!! Parameters
     integer,intent(in) :: num_elems_new,num_nodes_new
-
-!!! Local variables
+    ! Local variables
     integer,allocatable :: nodelem_temp(:),enodes_temp(:,:),enodes_temp2(:,:,:)
     real(dp),allocatable :: xyz_temp(:,:),rnodes_temp(:,:)
     logical,allocatable :: exp_temp(:)
     character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
 
     sub_name = 'reallocate_node_elem_arrays'
     call enter_exit(sub_name,1)
@@ -3085,13 +3675,13 @@ contains
     deallocate(enodes_temp)
 
     if(allocated(elem_field).and.num_ne.gt.0)then
-        allocate(rnodes_temp(num_ne,num_elems))
-        rnodes_temp=elem_field
-        deallocate(elem_field)
-        allocate(elem_field(num_ne,num_elems_new))
-        elem_field(1:num_ne,1:num_elems)=rnodes_temp(1:num_ne,1:num_elems)
-        deallocate(rnodes_temp)
-        elem_field(1:num_ne,num_elems+1:num_elems_new) = 0.0_dp
+       allocate(rnodes_temp(num_ne,num_elems))
+       rnodes_temp=elem_field
+       deallocate(elem_field)
+       allocate(elem_field(num_ne,num_elems_new))
+       elem_field(1:num_ne,1:num_elems)=rnodes_temp(1:num_ne,1:num_elems)
+       deallocate(rnodes_temp)
+       elem_field(1:num_ne,num_elems+1:num_elems_new) = 0.0_dp
     endif
 
     allocate(rnodes_temp(3,num_elems))
@@ -3103,13 +3693,13 @@ contains
     elem_direction(1:3,num_elems+1:num_elems_new) = 0.0_dp
 
     if(allocated(node_field).and.num_nj.gt.0)then
-      allocate(rnodes_temp(num_nj,num_nodes))
-      rnodes_temp=node_field
-      deallocate(node_field)
-      allocate(node_field(num_nj,num_nodes_new))
-      node_field(1:num_nj,1:num_nodes)=rnodes_temp(1:num_nj,1:num_nodes)
-      deallocate(rnodes_temp)
-      node_field(1:num_nj,num_nodes+1:num_nodes_new)=0.0_dp
+       allocate(rnodes_temp(num_nj,num_nodes))
+       rnodes_temp=node_field
+       deallocate(node_field)
+       allocate(node_field(num_nj,num_nodes_new))
+       node_field(1:num_nj,1:num_nodes)=rnodes_temp(1:num_nj,1:num_nodes)
+       deallocate(rnodes_temp)
+       node_field(1:num_nj,num_nodes+1:num_nodes_new)=0.0_dp
     endif
 
     allocate(nodelem_temp(num_elems))
@@ -3137,13 +3727,13 @@ contains
     elem_ordrs(1:num_ord,num_elems+1:num_elems_new) = 0
 
     if(allocated(elem_units_below).and.num_nu.gt.0)then
-      allocate(nodelem_temp(num_elems))
-      nodelem_temp=elem_units_below
-      deallocate(elem_units_below)
-      allocate(elem_units_below(num_elems_new))
-      elem_units_below(1:num_elems)=nodelem_temp(1:num_elems)
-      deallocate(nodelem_temp)
-      elem_units_below(num_elems+1:num_elems_new)=0
+       allocate(nodelem_temp(num_elems))
+       nodelem_temp=elem_units_below
+       deallocate(elem_units_below)
+       allocate(elem_units_below(num_elems_new))
+       elem_units_below(1:num_elems)=nodelem_temp(1:num_elems)
+       deallocate(nodelem_temp)
+       elem_units_below(num_elems+1:num_elems_new)=0
     endif
 
     allocate(enodes_temp(num_nodes,0:3))
@@ -3155,29 +3745,30 @@ contains
     elems_at_node(num_nodes+1:num_nodes_new,0:3)=0
 
     if(model_type.eq.'gas_mix')then
-      allocate(exp_temp(num_elems))
-      exp_temp = expansile
-      deallocate(expansile)
-      allocate(expansile(num_elems_new))
-      expansile(1:num_elems)=exp_temp(1:num_elems)
-      deallocate(exp_temp)
-      expansile(num_elems+1:num_elems_new)=.false.
+       allocate(exp_temp(num_elems))
+       exp_temp = expansile
+       deallocate(expansile)
+       allocate(expansile(num_elems_new))
+       expansile(1:num_elems)=exp_temp(1:num_elems)
+       deallocate(exp_temp)
+       expansile(num_elems+1:num_elems_new)=.false.
     endif
 
     call enter_exit(sub_name,2)
 
   end subroutine reallocate_node_elem_arrays
 
-!!!###############################################################
+!!!#############################################################################
 
   function get_local_node_f(ndimension,np_global) result(get_local_node)
 
-!! dummy arguments
     integer,intent(in) :: ndimension,np_global
-!!! local variables
+    ! Local variables
     integer :: np
     integer :: get_local_node
     logical :: found
+
+    ! --------------------------------------------------------------------------
 
     found = .false.
     np = 0
@@ -3205,7 +3796,7 @@ contains
              write(*,'('' Warning: local node not found for global node'',I6)') np_global
              read(*,*)
           endif
-           if(np_global.eq.nodes_2d(np))then
+          if(np_global.eq.nodes_2d(np))then
              get_local_node = np
              found = .true.
           endif
@@ -3213,24 +3804,21 @@ contains
 
     end select
 
-
   end function get_local_node_f
 
-
-!###################################################################################
-!
-!*get_final_integer*
+!!!#############################################################################
 
   function get_final_integer(string)
-    
+    !*get_final_integer*
+
     character,intent(in) :: string*(*)
+    ! Local parameters
     integer :: ibeg,iend,ierror,nsign,ntemp
     character :: sub_string*(40)
-    
     integer :: get_final_integer
-    
-    ! ###########################################################################
-    
+
+    ! --------------------------------------------------------------------------
+
     iend=len(string) !get the length of the string
     ibeg=index(string,":")+1 !get location of integer in string, follows ":"
     sub_string = adjustl(string(ibeg:iend)) ! get the characters beyond ":"
@@ -3242,7 +3830,7 @@ contains
        nsign=1
        ibeg=1
     endif
-    
+
     read (sub_string(ibeg:iend), '(i10)', iostat=ierror ) ntemp !get integer values
     if(ierror.gt.0)then
        !... something wrong with data
@@ -3250,27 +3838,32 @@ contains
        write(*,'(a)') sub_string(ibeg:iend)
     endif
     ntemp=ntemp*nsign !apply sign to number
-    
+
     get_final_integer=ntemp !return the integer value
-    
+
   end function get_final_integer
-  
-!!!##################################################
+
+!!!#############################################################################
 
   subroutine get_four_nodes(ne,string)
 
-    !     Parameter List
-    integer, INTENT(IN) :: ne
-    character(len=132), INTENT(IN) :: string
+    integer, intent(in) :: ne
+    character(len=132), intent(in) :: string
+    ! Local variables
     integer :: ibeg,iend,i_ss_end,nn,np_global
     character(len=40) :: sub_string
-    
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'get_four_nodes'
+    call enter_exit(sub_name,1)
 
     iend=len(string)
     ibeg=index(string,":")+1 !get location of first integer in string
     sub_string = adjustl(string(ibeg:iend)) ! get the characters beyond : and remove the leading blanks
     i_ss_end=len(sub_string) !get the end location of the sub-string
-    
+
     ibeg=1
     do nn=1,4
        iend=index(sub_string," ") !get location of first blank in sub-string
@@ -3278,368 +3871,132 @@ contains
        sub_string = adjustl(sub_string(iend:i_ss_end)) ! get chars beyond blank, remove leading blanks
        elem_nodes_2d(nn,ne)=get_local_node_f(2,np_global)
     enddo ! nn
-    
+
+    call enter_exit(sub_name,2)
+
   end subroutine get_four_nodes
 
-! 
-! ##########################################################################      
-!
-  subroutine mesh_angle(ANGLE,XP1,XP2,XP3)
+!!!#############################################################################
 
-!#### Subroutine: MESH_ANGLE
-!###  Description:
-!###    MESH_ANGLE calculates the angle between vectors XP1-XP2 and XP2-XP3
-    use arrays,only: dp,elems,elem_cnct,elem_direction,elem_field
-    use diagnostics,only: enter_exit
+  subroutine redistribute_mesh_nodes_2d_from_1d
 
-    IMPLICIT NONE
-!   INCLUDE 'geom00.cmn'
-!   INCLUDE 'tol00.cmn'
-
-    real(dp),INTENT(IN) :: ANGLE
-    real(dp),INTENT(IN) :: XP1(3),XP2(3),XP3(3)
-
-    !Local variables
-    INTEGER :: nj
-    REAL(dp) :: SCALAR,U(3),V(3)
+    integer :: i,j,k,ne,nelist(20),ne_adjacent,np,nplist(20),np_adjacent,np_last,num_list, &
+         ring1_nodes(4)
+    real(dp) :: displace_length,distance_to_crux,distance_to_crux_last,line_length, &
+         nedirection(3,20),point1(3),point2(3),point3(3),point4(3),vector(3)
+    logical :: continue
     character(len=60) :: sub_name
 
-    sub_name = 'mesh_angle'
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'redistribute_mesh_nodes_2d_from_1d'
     call enter_exit(sub_name,1)
 
+    nplist = 0
+    nelist = 0
 
-     DO nj=1,3
-       U(nj)=XP2(nj)-XP1(nj) !end - start
-       V(nj)=XP3(nj)-XP2(nj) !end - start
-     ENDDO !nj
+    np = 1
+    do while (np.le.num_nodes_2d) ! run through all of the 2d mesh nodes
+       ! use the 'front' bifurcation node to identify the crux node (based on the
+       ! template structure that we used to set up the bifurcations). Crux node
+       ! must be at front_node + 3.
+       if(node_versn_2d(np).eq.6)then   ! this is the 'front' node at a bifurcation
+          np = np + 3   ! this is the node number for the 'crux' node
+          do i = 1,2 ! for each of the two branches that the bifurcation leads to
+             ne = elems_at_node_2d(np,2*i-1)   ! get the first (and then third) element that node np (crux) is in
+             num_list = 1                      ! count the number of 'rings' of nodes between bifurcations
+             nelist(num_list) = ne             ! record the first (and third) element number ne
+             np_adjacent = elem_nodes_2d(4,ne) ! node number in the +Xi2 direction (along the branch)
+             nplist(num_list) = np_adjacent    ! the node number along the line from one bifurcation to the next
+             ! get coordinates for three of the points on the first 'ring' that is in the direction of the
+             ! branch. Not straightforward when at a bifurcation.
+             point1(1:3) = node_xyz_2d(1,1,1:3,np_adjacent)
+             point2(1:3) = node_xyz_2d(1,1,1:3,elem_nodes_2d(3,ne))
+             point3(1:3) = node_xyz_2d(1,1,1:3,elem_nodes_2d(3,elem_cnct_2d(-1,1,ne)))
+             point4(1:3) = node_xyz_2d(1,1,1:3,np)   ! the location of the crux node
+             ! calculate the distance from the crux (point4) to the plane of first adjacent ring
+             line_length = distance_from_plane_to_point(point1,point2,point3,point4)
 
-      CALL normalise(3,U)
-      CALL normalise(3,V)
+             point1(1:3) = node_xyz_2d(1,1,1:3,np-1)   ! the location of the 'back' node of bifurcation
+!!             ! calculate the line length from back node to a point on the first ring
+!!             distance_to_crux_last = distance_between_points(point1,point2)
 
+             continue = .true.
+             do while(continue)   ! keep going: note that bifurcation will have > 1 version at nodes
+                if(elem_cnct_2d(2,0,ne).eq.0)then ! no adjacent 2d elements in Xi+2 direction
+                   continue = .false.
+                else
+                   ne = elem_cnct_2d(2,1,ne)        ! get the next adjacent element in Xi+2 direction
+                   num_list = num_list + 1 ! the number of 'rings' between bifurcations
+                   nelist(num_list) = ne ! the element number of the adjacent element
+                   np_last = np_adjacent   ! store the previous node number
+                   np_adjacent = elem_nodes_2d(4,ne) ! the next node on the line
+                   nplist(num_list) = np_adjacent    ! the node number on the line from one bifurcation to the next
+                   ! calculate the distance between adjacent rings
+                   point1(1:3) = node_xyz_2d(1,1,1:3,np_last)      ! coordinates of node on previous ring
+                   point2(1:3) = node_xyz_2d(1,1,1:3,np_adjacent)  ! coordinate of node on current ring
+                   line_length = line_length + &
+                        distance_between_points(point1,point2)  ! sum distance between rings
+                   ! calculate the direction between connected nodes on rings
+                   vector(1:3) = node_xyz_2d(1,1,1:3,np_adjacent) - &
+                        node_xyz_2d(1,1,1:3,np_last)
+                   vector = unit_vector(vector)
+                   nedirection(1:3,num_list-1) = vector(1:3)  ! store the direction
+                   ! continue until the next bifurcation is detected (nodes with > 1 version)
+                   if(node_versn_2d(np_adjacent).ne.1) continue = .false.
+                endif
+             enddo
 
-      ANGLE=scalar_f(3,U,V)
-      ANGLE=MAX(-1.d0,ANGLE)
-      ANGLE=MIN(1.d0,ANGLE)
-      ANGLE=DACOS(ANGLE)
+             line_length = line_length/real(num_list) ! this is the length to redistribute rings to
 
-    call enter_exit(sub_name,2)
-  end subroutine mesh_angle
+!!!          adjust the location of the nodes in each 'ring'
+             do j = 1,num_list - 1   ! only adjust the rings that are between bifns: last 'ring' is actually the next bifn
 
+                ! first get the list of nodes in the ring
+                ring1_nodes(1) = nplist(j)
+                ne_adjacent = elem_cnct_2d(1,1,nelist(j)) ! get the next element in the +Xi1 direction
+                do k = 2,4
+                   ring1_nodes(k) = elem_nodes_2d(4,ne_adjacent)
+                   ne_adjacent = elem_cnct_2d(1,1,ne_adjacent) ! get the next element in the +Xi1 direction
+                enddo ! k
 
-! ##########################################################################
-!
-  subroutine mesh_plane_angle(NBJ,ne,NPNE,ANGLE,XP)
+                ! assume that the direction for adjustment is defined by location of adjacent rings
+                vector(1:3) = nedirection(1:3,j)
 
-!#### Subroutine: MESH_PLANE_ANGLE
-!###  Description:
-!###  MESH_PLANE_ANGLE calculates the rotation angle between the
-!###  branching planes of a parent (ne) and its child branches.
+                ! calculate the ring displacement = j*line_length - (distance from crux)
+                point1(1:3) = node_xyz_2d(1,1,1:3,ring1_nodes(1))
+                point2(1:3) = node_xyz_2d(1,1,1:3,ring1_nodes(2))
+                point3(1:3) = node_xyz_2d(1,1,1:3,ring1_nodes(3))
+                point4(1:3) = node_xyz_2d(1,1,1:3,np)
+                displace_length = real(j) * line_length - &
+                     distance_from_plane_to_point(point1,point2,point3,point4)
 
-    use arrays,only: dp,elem_cnct
-
-      IMPLICIT NONE
-
-!!     INCLUDE 'b00.cmn'
-!!     INCLUDE 'b01.cmn'
-!!     INCLUDE 'cbdi02.cmn'
-!!     INCLUDE 'geom00.cmn'
-!!     INCLUDE 'tol00.cmn'
-
-!!  Parameter list
-      INTEGER :: NBJ(NJM,NEM),ne,NPNE(NNM,NBFM,NEM),&
-        NXI(-NIM:NIM,0:NEIM,0:NEM)
-      REAL*8 ANGLE,XP(NKM,NVM,NJM,NPM)
-
-!! Local variables
-      INTEGER nb,ne0,ne1,nj,np1,np2,np3,np4,np5
-      REAL*8 norm_1(4),norm_2(4),SCALAR,XPOINT(3,5),temp
-      REAL*8 CALC_ANGLE
-
-      nb=NBJ(1,ne)
-      ne0=NXI(-1,1,ne) !parent element
-      np1=NPNE(1,nb,ne) !start node
-      np2=NPNE(2,nb,ne) !end node
-      ne1=NXI(1,1,ne0)
-
-!!     IF(DOP)THEN
-!!       WRITE(OP_STRING,'(5(I6))') nb,ne0,np1,np2,ne1
-!!       CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-!!     ENDIF
-
-      IF(ne1.EQ.ne) ne1=NXI(1,2,ne0) !sibling
-      np3=NPNE(2,nb,ne1) !end node of sibling
-      np4=NPNE(2,nb,NXI(1,1,ne)) !end node of first child
-      np5=NPNE(2,nb,NXI(1,2,ne)) !end node of second child
-
-      DO nj=1,3
-        XPOINT(nj,1)=XP(1,1,nj,np1)
-        XPOINT(nj,2)=XP(1,1,nj,np2)
-        XPOINT(nj,3)=XP(1,1,nj,np3)
-        XPOINT(nj,4)=XP(1,1,nj,np4)
-        XPOINT(nj,5)=XP(1,1,nj,np5)
-      ENDDO !nj
-
-      CALL plane_from_3_points(norm_1,2,XPOINT(1,1),XPOINT(1,2),XPOINT(1,3))
-      CALL normalise2(3,norm_1,temp) !unit vector
-
-      CALL plane_from_3_points(norm_2,2,XPOINT(1,2),XPOINT(1,4),XPOINT(1,5))
-      CALL normalise2(3,norm_2,temp)
-
-      ANGLE=CALC_ANGLE(norm_1,norm_2)
-
-  end subroutine mesh_plane_angle
-
-!
-
-
-
-! ##########################################################################      
-! 
-
-  subroutine normalise(NUMCMPTS,VECTOR)
-
-!#### Subroutine: NORMALISE
-!###  Description:
-!###  NORMALISE divides the components of VECTOR by it's length
-
-    use arrays,only: dp
-    use diagnostics,only: enter_exit
-    character(len=60) :: sub_name
-
-    implicit none
-!!  INCLUDE 'cbdi02.cmn'
-!!  INCLUDE 'tol00.cmn'
-
-!!  Parameter List
-    integer :: NUMCMPTS
-    real(dp) :: VECTOR(*)
-
-!!  Local Variables
-    INTEGER :: ni
-    REAL(dp) :: VECTOR_LENGTH
-
-    sub_name = 'normalise'
-
-    VECTOR_LENGTH=0.0d0
-     DO ni=1,NUMCMPTS
-       VECTOR_LENGTH=VECTOR_LENGTH+VECTOR(ni)*VECTOR(ni)
-     ENDDO !ni
-     VECTOR_LENGTH=DSQRT(VECTOR_LENGTH)
-
-     IF(VECTOR_LENGTH.GT.ZERO_TOL) THEN
-       DO ni=1,NUMCMPTS
-         VECTOR(ni)=VECTOR(ni)/VECTOR_LENGTH
-       ENDDO !ni
-     ELSE
-       WRITE(*,*) ' >>WARNING: Cannot normalise a zero length vector'
-     ENDIF
+                ! update the location of the four nodes in the current ring
+                do k = 1,4
+                   node_xyz_2d(1,1,1:3,ring1_nodes(k)) = &
+                        node_xyz_2d(1,1,1:3,ring1_nodes(k)) + &
+                        vector(1:3) * displace_length
+                enddo
+             enddo ! j
+          enddo ! i
+       endif
+       np = np + 1 ! increment to check the next node
+    enddo
 
     call enter_exit(sub_name,2)
-  end subroutine normalise
 
-!
-! ##########################################################################      
-!
-  subroutine linear_regression(N,r_squared,slope,X,Y)
+  end subroutine redistribute_mesh_nodes_2d_from_1d
 
-!#### Subroutine: LINREGRESS
-!###  Description:
-!###    Calculates linear regression equation and r-squared 
-!###    correlation coefficient for a set of data.
-
-!*** Created by Kelly Burrowes, March 2003.
-    use arrays,only: dp
-    use diagnostics,only: enter_exit
-
-    implicit none
-!!  INCLUDE 'b01.cmn'
-!!  INCLUDE 'cbdi02.cmn'
-!!  Parameter list
-    integer, INTENT(IN) :: N
-    real(dp), INTENT(IN) :: X(N),Y(N)
-    real(dp), INTENT(OUT) :: r_squared,slope
-
-!!  Local variables
-    integer :: i
-    REAL(dp) :: AX,AY,intercept,R,SXX,SXY,SYY
-    REAL(dp) :: XSUM,XT,XXSUM,XYSUM,YSUM,YT
-
-    sub_name = 'linear_regression'
-    call enter_exit(sub_name,1)
-
-      YSUM=0.d0
-      XSUM=0.d0
-      XXSUM=0.d0
-      XYSUM=0.d0
-      DO i=1,N
-        YSUM=YSUM+Y(i)
-        XSUM=XSUM+X(i)
-        XYSUM=XYSUM+X(i)*Y(i)
-        XXSUM=XXSUM+X(i)*X(i)
-      ENDDO !N
-
-!... calculate least squares estimate of straight line thru solution
-      slope=(XYSUM-XSUM*YSUM/N)/(XXSUM-XSUM*XSUM/N)
-      intercept=(YSUM/N)-(slope*XSUM/N)
-
-!... calculate r-squared correlation coefficient
-!... see Numerical Recipes, Fortran 77, 2nd edition, page 632.      
-      AX=XSUM/N !mean of X
-      AY=YSUM/N !mean of Y
-      SXX=0.d0
-      SYY=0.d0
-      SXY=0.d0
-      DO i=1,N
-        XT=X(i)-AX
-        YT=Y(i)-AY
-        SXX=SXX+XT**2.d0
-        SYY=SYY+YT**2.d0
-        SXY=SXY+XT*YT
-      ENDDO
-      R=SXY/DSQRT(SXX*SYY)
-      r_squared=R**2
-!     IF(DOP)THEN
-!       WRITE(OP_STRING,'('' Gradient: '',F8.3,'' Intercept: '','
-!    '    //' F8.3,''R-squared correlation'',F8.3)')
-!    '    slope,intercept,r_squared
-!       CALL WRITES(IODI,OP_STRING,ERROR,*9999)
-!     ENDIF
-
-    call enter_exit(sub_name,2)
-  end subroutine linear_regression
-
-
-!
-! ##########################################################################      
-!
-
-  subroutine normalise2(NUMCMPTS,VECTOR,VECTOR_LENGTH)
-
-!#### Subroutine: NORMALISE2
-!###  Description:
-!###    NORMALISE divides the components of VECTOR by its length
-!###    and returns the original length
-
-      IMPLICIT NONE
-!!     INCLUDE 'cbdi02.cmn'
-!!     INCLUDE 'tol00.cmn'
-
-!!!     Parameter List
-      INTEGER NUMCMPTS
-      REAL*8 VECTOR(*)
-
-!!     Local Variables
-      INTEGER ni
-      REAL*8 VECTOR_LENGTH
-    sub_name = 'normalise2'
-    call enter_exit(sub_name,1)
-
-      VECTOR_LENGTH=0.0d0
-      DO ni=1,NUMCMPTS
-        VECTOR_LENGTH=VECTOR_LENGTH+VECTOR(ni)*VECTOR(ni)
-      ENDDO !ni
-      VECTOR_LENGTH=DSQRT(VECTOR_LENGTH)
-
-      IF(VECTOR_LENGTH.GT.ZERO_TOL) THEN
-        DO ni=1,NUMCMPTS
-          VECTOR(ni)=VECTOR(ni)/VECTOR_LENGTH
-        ENDDO !ni
-      ELSE
-        WRITE(*,*) 'WARNING: Cannot normalise a zero length vector'
-      ENDIF
-
-  end subroutine normalise2
-
-
-! ##########################################################################      
-! 
-  subroutine plane_from_3_points(NORML,NORMALTYPE,POINT1,POINT2,POINT3)
-
-!#### Subroutine: PLANE_FROM_3_PTS
-!###  Description:
-!###    PLANE_FROM_3_PTS finds the equation of a plane in three
-!###    dimensions and a vector normal to the plane from three
-!###    non-collinear points.
-!###    NORMALTYPE=1 for raw normal and plane equation
-!###    NORMALTYPE=2 for unit normal and plane equation
-!###    The coefficients represent aX + bY + cZ + d = 0
-!###    NORML(1)=a,NORML(2)=b,NORML(3)=c,NORML(4)=d
-!***  Created by Martin Buist, Jan 1997
-
-
-!!    INCLUDE 'cbdi02.cmn'
-!!    INCLUDE 'geom00.cmn'
-!!    INCLUDE 'tol00.cmn'
-
-    use arrays,only: dp
-    use diagnostics,only: enter_exit
-
-    IMPLICIT NONE
-
-!!  Parameter list
-    INTEGER :: NORMALTYPE
-    REAL*8 POINT1(3),POINT2(3),POINT3(3),NORML(4)
-    CHARACTER ERROR*(*)
-
-!!  Local variables
-    INTEGER :: nj
-    REAL(dp) :: DIFF1(3),DIFF2(3),NORMSIZE
-    LOGICAL COLLINEAR
-    character(len=60) :: sub_name
-
-    sub_name = 'plane_from_3_points'
-    call enter_exit(sub_name,1)
-
-
-! Check for collinearity
-      COLLINEAR=.FALSE.
-      call check_collinear(POINT1,POINT2,POINT3,collinear)
-      IF(.NOT.collinear) THEN
-        DO nj=1,NJT
-          DIFF1(nj)=POINT2(nj)-POINT1(nj)
-          DIFF2(nj)=POINT2(nj)-POINT3(nj)
-        ENDDO !nj
-
-        NORML(1)=(DIFF1(2)*DIFF2(3))-(DIFF1(3)*DIFF2(2))
-        NORML(2)=(DIFF1(3)*DIFF2(1))-(DIFF1(1)*DIFF2(3))
-        NORML(3)=(DIFF1(1)*DIFF2(2))-(DIFF1(2)*DIFF2(1))
-
-        IF(NORMALTYPE.EQ.2) THEN
-          NORMSIZE=0.0d0
-          DO nj=1,NJT
-            NORMSIZE=NORMSIZE+(NORML(nj)**2.0d0)
-          ENDDO !nj
-          NORMSIZE=DSQRT(NORMSIZE)
-          DO nj=1,NJT
-            NORML(nj)=NORML(nj)/NORMSIZE
-          ENDDO !nj
-        ENDIF
-
-        NORML(4)=0.0d0
-        DO nj=1,NJT
-          NORML(4)=NORML(4)-(NORML(nj)*POINT1(nj))
-        ENDDO !nj
-
-      ELSE !Colinear
-
-        DO nj=1,4
-          NORML(nj)=0.0d0
-        ENDDO !nj
-
-      ENDIF
-
-    call enter_exit(sub_name,2)
-  end subroutine plane_from_3_points
-! 
-! ##########################################################################      
-
+!!!#############################################################################
 
   function inlist(item,ilist)
-!!! dummy arguments
+
     integer :: item,ilist(:)
-! local variables
+    ! Local variables
     integer :: n
     logical :: inlist
+
+    ! --------------------------------------------------------------------------
 
     inlist = .false.
     do n=1,size(ilist)
@@ -3647,65 +4004,766 @@ contains
     enddo
 
   end function inlist
-! 
-!###########################################################################################
-! 
+
+!!!#############################################################################
+
   function coord_at_xi(ne,xi,basis)
 
-    ! Parameters
     integer,intent(in) :: ne
     real(dp),intent(in) :: xi(:)
     character(len=*),intent(in) :: basis
-
     ! Local Variables
     integer :: nn,nv
     real(dp) :: phi(4),phi_10(2),phi_11(2),phi_20(2),phi_21(2),x(4,3,4)
     real(dp) :: coord_at_xi(3)
 
+    ! --------------------------------------------------------------------------
+
     select case (basis)
-      case('linear')
-         forall (nn=1:4) x(1,1:3,nn) = node_xyz_2d(1,1,1:3,elem_nodes_2d(nn,ne))
-         phi(1) = (1.0_dp - xi(1))*(1.0_dp - xi(2))
-         phi(2) = xi(1)*(1.0_dp - xi(2))
-         phi(3) = (1.0_dp - xi(1))*xi(2)
-         phi(4) = xi(1)*xi(2)
+    case('linear')
+       forall (nn=1:4) x(1,1:3,nn) = node_xyz_2d(1,1,1:3,elem_nodes_2d(nn,ne))
+       phi(1) = (1.0_dp - xi(1))*(1.0_dp - xi(2))
+       phi(2) = xi(1)*(1.0_dp - xi(2))
+       phi(3) = (1.0_dp - xi(1))*xi(2)
+       phi(4) = xi(1)*xi(2)
 
-         coord_at_xi(1:3) = phi(1)*x(1,1:3,1)+phi(2)*x(1,1:3,2)+phi(3)*x(1,1:3,3)+phi(4)*x(1,1:3,4)
+       coord_at_xi(1:3) = phi(1)*x(1,1:3,1)+phi(2)*x(1,1:3,2)+phi(3)* &
+            x(1,1:3,3)+phi(4)*x(1,1:3,4)
 
-      case('hermite')
-         do nn=1,4
-           nv = elem_versn_2d(nn,ne)
-           x(1:4,1:3,nn) = node_xyz_2d(1:4,nv,1:3,elem_nodes_2d(nn,ne))
-         enddo
-         phi_10(1) = (2.0_dp*xi(1)-3.0_dp)*xi(1)*xi(1)+1.0_dp  ! 2xi^3-3xi^2+1
-         phi_10(2) = (2.0_dp*xi(2)-3.0_dp)*xi(2)*xi(2)+1.0_dp  ! 2xi^3-3xi^2+1
-         phi_20(1) = xi(1)*xi(1)*(3.0_dp-2.0_dp*xi(1))         ! -2xi^3+3xi^2
-         phi_20(2) = xi(2)*xi(2)*(3.0_dp-2.0_dp*xi(2))         ! -2xi^3+3xi^2
-         phi_11(1) = ((xi(1)-2.0_dp)*xi(1)+1.0_dp)*xi(1)       ! xi^3-2xi^2+xi
-         phi_11(2) = ((xi(2)-2.0_dp)*xi(2)+1.0_dp)*xi(2)       ! xi^3-2xi^2+xi
-         phi_21(1) = xi(1)*xi(1)*(xi(1)-1.0_dp)                ! xi^3-xi^2
-         phi_21(2) = xi(2)*xi(2)*(xi(2)-1.0_dp)                ! xi^3-xi^2
-         coord_at_xi(1:3) = phi_10(1)*phi_10(2)*x(1,1:3,1) &
-                            + phi_20(1)*phi_10(2)*x(1,1:3,2) &
-                            + phi_10(1)*phi_20(2)*x(1,1:3,3) &
-                            + phi_20(1)*phi_20(2)*x(1,1:3,4) &
-                            + phi_11(1)*phi_10(2)*x(2,1:3,1) &
-                            + phi_21(1)*phi_10(2)*x(2,1:3,2) &
-                            + phi_11(1)*phi_20(2)*x(2,1:3,3) &
-                            + phi_21(1)*phi_20(2)*x(2,1:3,4) &
-                            + phi_10(1)*phi_11(2)*x(3,1:3,1) &
-                            + phi_20(1)*phi_11(2)*x(3,1:3,2) &
-                            + phi_10(1)*phi_21(2)*x(3,1:3,3) &
-                            + phi_20(1)*phi_21(2)*x(3,1:3,4) &
-                            + phi_11(1)*phi_11(2)*x(4,1:3,1) &
-                            + phi_21(1)*phi_11(2)*x(4,1:3,2) &
-                            + phi_11(1)*phi_21(2)*x(4,1:3,3) &
-                            + phi_21(1)*phi_21(2)*x(4,1:3,4)
-     end select
+    case('hermite')
+       do nn=1,4
+          nv = elem_versn_2d(nn,ne)
+          x(1:4,1:3,nn) = node_xyz_2d(1:4,nv,1:3,elem_nodes_2d(nn,ne))
+       enddo
+       phi_10(1) = (2.0_dp*xi(1)-3.0_dp)*xi(1)*xi(1)+1.0_dp  ! 2xi^3-3xi^2+1
+       phi_10(2) = (2.0_dp*xi(2)-3.0_dp)*xi(2)*xi(2)+1.0_dp  ! 2xi^3-3xi^2+1
+       phi_20(1) = xi(1)*xi(1)*(3.0_dp-2.0_dp*xi(1))         ! -2xi^3+3xi^2
+       phi_20(2) = xi(2)*xi(2)*(3.0_dp-2.0_dp*xi(2))         ! -2xi^3+3xi^2
+       phi_11(1) = ((xi(1)-2.0_dp)*xi(1)+1.0_dp)*xi(1)       ! xi^3-2xi^2+xi
+       phi_11(2) = ((xi(2)-2.0_dp)*xi(2)+1.0_dp)*xi(2)       ! xi^3-2xi^2+xi
+       phi_21(1) = xi(1)*xi(1)*(xi(1)-1.0_dp)                ! xi^3-xi^2
+       phi_21(2) = xi(2)*xi(2)*(xi(2)-1.0_dp)                ! xi^3-xi^2
+       coord_at_xi(1:3) = phi_10(1)*phi_10(2)*x(1,1:3,1) &
+            + phi_20(1)*phi_10(2)*x(1,1:3,2) &
+            + phi_10(1)*phi_20(2)*x(1,1:3,3) &
+            + phi_20(1)*phi_20(2)*x(1,1:3,4) &
+            + phi_11(1)*phi_10(2)*x(2,1:3,1) &
+            + phi_21(1)*phi_10(2)*x(2,1:3,2) &
+            + phi_11(1)*phi_20(2)*x(2,1:3,3) &
+            + phi_21(1)*phi_20(2)*x(2,1:3,4) &
+            + phi_10(1)*phi_11(2)*x(3,1:3,1) &
+            + phi_20(1)*phi_11(2)*x(3,1:3,2) &
+            + phi_10(1)*phi_21(2)*x(3,1:3,3) &
+            + phi_20(1)*phi_21(2)*x(3,1:3,4) &
+            + phi_11(1)*phi_11(2)*x(4,1:3,1) &
+            + phi_21(1)*phi_11(2)*x(4,1:3,2) &
+            + phi_11(1)*phi_21(2)*x(4,1:3,3) &
+            + phi_21(1)*phi_21(2)*x(4,1:3,4)
+    end select
 
   end function coord_at_xi
 
-! 
-!###########################################################################################
-! 
+!!!#############################################################################
+
+  function get_local_elem(ne_global)
+
+!!! dummy arguments
+    integer,intent(in) :: ne_global
+!!! local variables
+    integer :: ne
+    integer :: get_local_elem
+
+    ! --------------------------------------------------------------------------
+
+    do ne=1,num_elems_2d
+       if(ne_global.eq.elems_2d(ne)) get_local_elem = ne
+    enddo
+
+  end function get_local_elem
+
+!!!#############################################################################
+
+  function get_local_elem_1d(ne_global)
+
+    integer,intent(in) :: ne_global
+    ! Local variables
+    integer :: ne
+    integer :: get_local_elem_1d
+
+    ! --------------------------------------------------------------------------
+
+    get_local_elem_1d = 0
+    do ne=1,num_elems
+       if(ne_global.eq.elems(ne)) get_local_elem_1d = ne
+    enddo
+
+  end function get_local_elem_1d
+
+!!!###########################################################################
+
+  subroutine write_elem_geometry_2d(elemfile)
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_WRITE_ELEM_GEOMETRY_2D" :: WRITE_ELEM_GEOMETRY_2D
+
+    character(len=*),intent(in) :: elemfile
+    !     Local Variables
+    integer :: ne,ne_count,nglobal_list(4),np,nv
+    character(len=132) :: writefile
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'write_elem_geometry_2d'
+    call enter_exit(sub_name,1)
+
+    writefile = trim(elemfile)//'.ipelem'
+    open(10, file=writefile, status='replace')
+
+    !.....write the total number of elems
+    write(10,'('' CMISS Version 2.1  ipelem File Version 2'')')
+    write(10,'('' Heading: 2D surface from 1D centreline'')')
+    write(10,'()')
+    write(10,'('' The number of elements is [1]:  '',i6)') num_elems_2d
+    write(10,'()')
+
+    !    do ne = 1,num_elems_2d
+    ne_count = 1
+    ne = 0
+    do while (ne_count.le.num_elems_2d)
+       ne = ne + 1
+       if(elems_2d(ne).gt.0)then
+          ne_count = ne_count + 1
+          write(10,'('' Element number [    1]:  '',i6)')   elems_2d(ne)
+          write(10,'('' The number of geometric Xj-coordinates is [3]: 3'')')
+          write(10,'('' The basis function type for geometric variable 1 is [1]:  1'')')
+          write(10,'('' The basis function type for geometric variable 2 is [1]:  1'')')
+          write(10,'('' The basis function type for geometric variable 3 is [1]:  1'')')
+          do np = 1,4
+             nglobal_list(np) = nodes_2d(elem_nodes_2d(np,ne))
+          enddo
+          write(10,'('' Enter the 4 global numbers for basis 1: '',4(i6))') &
+               nglobal_list(:)
+          do np = 1,4
+             if(node_versn_2d(elem_nodes_2d(np,ne)).gt.1)then ! has versions
+                nv = elem_versn_2d(np,ne)
+                write(10,'('' The version number for occurrence  1 of node'' &
+                     &,i7,'', njj=1 is [ 1]: '',i3)') nglobal_list(np), nv
+                write(10,'('' The version number for occurrence  1 of node'' &
+                     &,i7,'', njj=2 is [ 1]: '',i3)') nglobal_list(np), nv
+                write(10,'('' The version number for occurrence  1 of node'' &
+                     &,i7,'', njj=3 is [ 1]: '',i3)') nglobal_list(np), nv
+             endif
+          enddo !np
+          write(10,'()')
+       endif
+    enddo ! ne
+
+  end subroutine write_elem_geometry_2d
+
+!!!#############################################################################
+
+  subroutine write_node_geometry_2d(NODEFILE)
+    !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_WRITE_NODE_GEOMETRY_2D" :: WRITE_NODE_GEOMETRY_2D
+
+    character(len=*),intent(in) :: NODEFILE
+    !     Local Variables
+    integer :: i,np,np_count,nv
+    character(len=132) :: writefile
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'write_node_geometry_2d'
+    call enter_exit(sub_name,1)
+
+    writefile = trim(nodefile)//'.ipnode'
+    open(10, file=writefile, status='replace')
+
+    !.....write the total number of nodes
+    write(10,'('' CMISS Version 1.21 ipnode File Version 2'')')
+    write(10,'('' Heading: '')')
+    write(10,'()')
+    write(10,'('' The number of nodes is [    1]:  '',i6)') num_nodes_2d
+    write(10,'('' Number of coordinates [ 3]:  3'')')
+    do i=1,3
+       write(10,'('' Do you want prompting for different versions of nj='',i1,'' [N]? Y'')') i
+    enddo
+    do i=1,3
+       write(10,'('' The number of derivatives for coordinate '',i1,'' is [0]: 3'')') i
+    enddo
+
+    !    do np = 1,num_nodes_2d
+    np_count = 1
+    np = 0
+    do while (np_count.le.num_nodes_2d)
+       np = np + 1
+       if(nodes_2d(np).gt.0)then
+          np_count = np_count + 1
+          write(10,'()')
+          write(10,'('' Node number [    1]: '',i6)')  nodes_2d(np)
+          do i=1,3
+             write(10,'('' The number of versions for nj='',i1,'' is [1]:'',i2)')  i,node_versn_2d(np)
+             do nv=1,node_versn_2d(np)
+                if(node_versn_2d(np).gt.1) write(10,'('' For version number '',i1,'':'')') nv
+                !...........coordinate
+                write(10,'('' The Xj('',i1,'') coordinate is [ 0.00000E+00]: '',f12.5)') &
+                     i,node_xyz_2d(1,nv,i,np)
+                write(10,'('' The derivative wrt direction 1 is [ 0.00000E+00]: '',f12.5)') &
+                     node_xyz_2d(2,nv,i,np)
+                write(10,'('' The derivative wrt direction 2 is [ 0.00000E+00]: '',f12.5)') &
+                     node_xyz_2d(3,nv,i,np)
+                write(10,'('' The derivative wrt directions 1 & 2 is [ 0.00000E+00]: '',f12.5)') &
+                     node_xyz_2d(4,nv,i,np)
+             enddo !nv
+          end do !i
+       endif
+    enddo
+    close(10)
+
+     call enter_exit(sub_name,2)
+
+  end subroutine write_node_geometry_2d
+
+!!!#############################################################################
+
+  subroutine write_surface_geo(element_spline,elem_surfaces,ifile,ncount_point, &
+       ncount_loop,ncount_spline,np_offset)
+
+    integer :: element_spline(:,:),elem_surfaces(:,:),ifile,ncount_point, &
+         ncount_loop,ncount_spline,np_offset
+    ! Local variables
+    integer:: i,j,k,line1,line2,line3,line4,ne,nk,np,np_highest,np1,np2, &
+         num_crux_lines,nv1,nv2
+    integer,allocatable :: crux_lines(:,:)
+    real(dp) :: phi_1_0,phi_1_1,phi_2_0,phi_2_1,point_xyz(3),xidivn(3)
+    logical :: repeat
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'write_surface_geo'
+    call enter_exit(sub_name,1)
+
+    allocate(crux_lines(num_elems,3))
+
+    forall (i=1:3) xidivn(i) = 0.25_dp * i
+
+!!!    Make a gmsh 'point' at each of the surface mesh nodes
+    write(ifile,'(''/* Points */'')')
+    do np = 1,num_nodes_2d
+       ncount_point = ncount_point + 1
+       write(ifile,'(''Point('',i8,'') = {'',f12.7,'','',f12.7,'','',f12.7,'',lc};'')') &
+            ncount_point,node_xyz_2d(1,1,1:3,np)
+    enddo
+
+!!!    Now work through each 'ring' of four adjoining surface elements. Points are created
+!!!    between adjacent nodes in the Xi1 and Xi2 directions.
+
+    element_spline = 0
+    num_crux_lines = 0
+    ne = 1
+
+    do while (ne.le.num_elems_2d)
+
+!!!....make intermediate points, lines, surfaces, at Xi2=0 for model entry .........
+       if((elem_cnct_2d(-2,0,ne).eq.0) .or. &
+            (node_versn_2d(elem_nodes_2d(1,ne)).eq.6.or.&
+            node_versn_2d(elem_nodes_2d(2,ne)).eq.6))then
+          ! location of points in the Xi+1 direction on the Xi2=0 boundary
+          do k = 0,3
+             if(elem_cnct_2d(-2,0,ne).eq.0 .or. element_spline(1,ne+k).eq.0)then  ! no line (or points) here already
+                np1 = elem_nodes_2d(1,ne+k)
+                np2 = elem_nodes_2d(2,ne+k)
+                ! check that the line hasn't already been made. If it has, use it.
+                repeat = .false.
+                do i = 1,num_crux_lines
+                   if((np1.eq.crux_lines(i,2).and.np2.eq.crux_lines(i,3)).or. &
+                        (np1.eq.crux_lines(i,3).and.np2.eq.crux_lines(i,2)))then
+                      repeat = .true.
+                      element_spline(1,ne+k) = -crux_lines(i,1)
+                   endif
+                enddo
+
+                if(.not.repeat)then
+                   nv1 = elem_versn_2d(1,ne+k)
+                   nv2 = elem_versn_2d(2,ne+k)
+                   nk = 2 ! calculate the location in the Xi+1 direction
+                   do i = 1,3
+                      phi_1_0 = 1.0_dp - 3.0_dp * xidivn(i)**2 + 2.0_dp * xidivn(i)**3
+                      phi_1_1 = xidivn(i) * (xidivn(i) - 1.0_dp)**2
+                      phi_2_0 = xidivn(i)**2 * (3.0_dp - 2.0_dp * xidivn(i))
+                      phi_2_1 = xidivn(i)**2 * (xidivn(i) - 1.0_dp)
+                      do j = 1,3
+                         point_xyz(j) = phi_1_0 * node_xyz_2d(1,1,j,np1) + &
+                              phi_2_0 * node_xyz_2d(1,1,j,np2) &
+                              + phi_1_1 * node_xyz_2d(nk,nv1,j,np1) * scale_factors_2d(2,ne+k) &
+                              + phi_2_1 * node_xyz_2d(nk,nv2,j,np2) * scale_factors_2d(6,ne+k)
+                      enddo
+
+                      ncount_point = ncount_point + 1
+                      write(ifile,'(''Point('',i8,'') = {'',f12.7,'','',f12.7,'','',f12.7,'',lc};'')') &
+                           ncount_point, point_xyz(1:3)
+                   enddo ! i
+                   ncount_spline = ncount_spline + 1
+                   write(ifile,'(''Spline('',I8,'') = {'',I8,'','',I8,'','' &
+                        &,I8,'','',I8,'','',I8,''};'')') ncount_spline, np1+np_offset, &
+                        ncount_point-2, ncount_point-1, ncount_point, np2+np_offset
+                   element_spline(1,ne+k) = ncount_spline
+                   num_crux_lines = num_crux_lines + 1
+                   crux_lines(num_crux_lines,1) = ncount_spline
+                   crux_lines(num_crux_lines,2) = np1+np_offset
+                   crux_lines(num_crux_lines,3) = np2+np_offset
+!                   if(elem_cnct_2d(-2,0,ne).ne.0) element_spline(1,elem_cnct_2d(-2,1,ne)) = -ncount_spline
+                endif
+             endif
+          enddo  ! k
+       endif  ! elem_cnct etc
+
+!!!.......make intermediate points, lines, surfaces, at Xi2=1 for each 'ring' .........
+
+       ! location of points in the Xi+1 direction on the Xi2=1 boundary
+       np_highest = elem_nodes_2d(3,ne)
+       do k = 0,3
+          np1 = elem_nodes_2d(3,ne+k)
+          np2 = elem_nodes_2d(4,ne+k)
+          nv1 = elem_versn_2d(3,ne+k)
+          nv2 = elem_versn_2d(4,ne+k)
+          nk = 2
+          do i = 1,3
+             phi_1_0 = 1.0_dp - 3.0_dp * xidivn(i)**2 + 2.0_dp * xidivn(i)**3
+             phi_1_1 = xidivn(i) * (xidivn(i) - 1.0_dp)**2
+             phi_2_0 = xidivn(i)**2 * (3.0_dp - 2.0_dp * xidivn(i))
+             phi_2_1 = xidivn(i)**2 * (xidivn(i) - 1.0_dp)
+             forall (j=1:3) point_xyz(j) = phi_1_0 * node_xyz_2d(1,1,j,np1) &
+                  + phi_2_0 * node_xyz_2d(1,1,j,np2) &
+                  + phi_1_1 * node_xyz_2d(nk,nv1,j,np1) * scale_factors_2d(10,ne+k) &
+                  + phi_2_1 * node_xyz_2d(nk,nv2,j,np2) * scale_factors_2d(14,ne+k)
+
+             ncount_point = ncount_point + 1
+             write(ifile,'(''Point('',i8,'') = {'',f12.7,'','',f12.7,'','',f12.7,'',lc};'')') &
+                  ncount_point,point_xyz(1:3)
+          enddo ! i
+          ncount_spline = ncount_spline + 1
+          write(ifile,'(''Spline('',I8,'') = {'',I8,'','',I8,'','',I8,'','' &
+               & ,I8,'','',I8,''};'')') ncount_spline, np1+np_offset, ncount_point-2, &
+               ncount_point-1, ncount_point, np2+np_offset
+          element_spline(3,ne+k) = ncount_spline
+          if(elem_cnct_2d(2,0,ne+k).gt.0) element_spline(1,elem_cnct_2d(2,1,ne+k)) = ncount_spline
+       enddo ! k
+
+       ! location of points in the Xi+2 direction on the Xi1=0 boundary
+       do k = 0,3
+          np1 = elem_nodes_2d(1,ne+k)
+          np2 = elem_nodes_2d(3,ne+k)
+          nv1 = elem_versn_2d(1,ne+k)
+          nv2 = elem_versn_2d(3,ne+k)
+          nk = 3
+          do i = 1,3
+             phi_1_0 = 1.0_dp - 3.0_dp * xidivn(i)**2 + 2.0_dp * xidivn(i)**3
+             phi_1_1 = xidivn(i) * (xidivn(i) - 1.0_dp)**2
+             phi_2_0 = xidivn(i)**2 * (3.0_dp - 2.0_dp * xidivn(i))
+             phi_2_1 = xidivn(i)**2 * (xidivn(i) - 1.0_dp)
+             forall (j=1:3) point_xyz(j) = phi_1_0 * node_xyz_2d(1,1,j,np1) &
+                  + phi_2_0 * node_xyz_2d(1,1,j,np2) &
+                  + phi_1_1 * node_xyz_2d(nk,nv1,j,np1) * scale_factors_2d(3,ne+k) &
+                  + phi_2_1 * node_xyz_2d(nk,nv2,j,np2) * scale_factors_2d(11,ne+k)
+
+             ncount_point = ncount_point + 1
+             write(ifile,'(''Point('',i8,'') = {'',f12.7,'','',f12.7,'','',f12.7,'',lc};'')') &
+                  ncount_point,point_xyz(1:3)
+          enddo ! i
+          ncount_spline = ncount_spline + 1
+          write(ifile,'(''Spline('',I8,'') = {'',I8,'','',I8,'','',I8,'','' &
+               & ,I8,'','',I8,''};'')') ncount_spline, np1+np_offset, ncount_point-2, &
+               ncount_point-1, ncount_point, np2+np_offset
+          element_spline(4,ne+k) = ncount_spline
+          element_spline(2,elem_cnct_2d(-1,1,ne+k)) = ncount_spline
+       enddo ! k
+
+       do k = 0,3
+          line1 = element_spline(1,ne+k)
+          line2 = element_spline(2,ne+k)
+          line3 = -element_spline(3,ne+k)
+          line4 = -element_spline(4,ne+k)
+          ncount_loop = ncount_loop + 1
+          write(ifile,'(''Line Loop('',i8,'') = {'',i8,'','',i8,'','',i8,'','',i8,''};'')') &
+               ncount_loop, line1, line2, line3, line4
+          ncount_loop = ncount_loop + 1
+          write(ifile,'(''Surface('',I8,'') = {'',I8,''};'')') ncount_loop, ncount_loop - 1
+          elem_surfaces(3,ne+k) = ncount_loop
+       enddo ! k
+
+       ne = ne + 4
+
+    enddo ! while (ne.le.num_elems_2d)
+
+    deallocate(crux_lines)
+
+    call enter_exit(sub_name,2)
+
+  end subroutine write_surface_geo
+
+!!!#############################################################################
+
+  subroutine write_3d_geo(element_spline,elem_surfaces,ifile,ncount_point, &
+    ncount_loop,ncount_spline)
+
+    integer,intent(in) :: ifile
+    integer :: element_spline(:,:),elem_surfaces(:,:),ncount_point,ncount_loop, &
+         ncount_spline
+    ! Local variables
+    integer :: i,j,k,line1,line2,line3,line4,ncount_cap_entry=0,ncount_cap_exit=0, &
+         ncount_inner=0,ncount_centre=0,ncount_phys_vol=0,ncount_spline_0, &
+         ncount_surface=0,ncount_volume=0,ncount_wall=0,ne,ne_next,np_highest,np1,np2
+    integer,allocatable :: centre_points(:),ncap_entry(:),ncap_exit(:), &
+         ncentre(:),ninner(:),nphys_vol(:),node_spoke(:,:),nwall(:)
+    real(dp) :: point_xyz_centre(3), xidivn(3)
+    character(len=60) :: sub_name
+
+    ! --------------------------------------------------------------------------
+
+    sub_name = 'write_3d_geo'
+    call enter_exit(sub_name,1)
+
+    allocate(centre_points(num_nodes_2d))
+    allocate(ncap_entry(20))  ! assuming could have multiple inlets
+    allocate(ncap_exit(num_elems_2d))
+    allocate(ninner(num_elems_2d*2))
+    allocate(ncentre(num_elems_2d))
+    allocate(nphys_vol(num_elems_2d))
+    allocate(nwall(num_elems_2d))
+    allocate(node_spoke(2,num_nodes_2d))
+    node_spoke = 0
+
+    forall (i=1:3) xidivn(i) = 0.25_dp * i
+
+    ne = 1
+    do while (ne.le.num_elems_2d)
+!!!....the following works on four adjacent surface elements
+
+!!!......... make intermediate points, lines, surfaces, at Xi2=0 for model entry .........
+
+       if((elem_cnct_2d(-2,0,ne).eq.0) .or. &
+            (node_versn_2d(elem_nodes_2d(1,ne)).eq.6.or.&
+            node_versn_2d(elem_nodes_2d(2,ne)).eq.6))then
+          ! location of points in the Xi+1 direction on the Xi2=0 boundary
+          point_xyz_centre = 0.0_dp
+          do k = 0,3
+             np1 = elem_nodes_2d(1,ne+k)
+             forall (j = 1:3) point_xyz_centre(j) = &
+                  point_xyz_centre(j) + 0.25_dp * node_xyz_2d(1,1,j,np1)
+          enddo  ! k
+
+          if(elem_cnct_2d(-2,0,ne).eq.0)then
+             ! make a point at the centre of the ring
+             ncount_point = ncount_point + 1
+             write(ifile,'(''Point('',i8,'') = {'',f12.7,'','',f12.7,'','' &
+                  &,f12.7,'',lc};'')') ncount_point,point_xyz_centre(1:3)
+
+             ! make a 'spoke' from centre of the ring to each surface node
+             do k = 0,3
+                np1 = elem_nodes_2d(1,ne+k)
+                centre_points(np1) = ncount_point   ! record the centre point number for this 'ring'
+                ncount_spline = ncount_spline + 1
+                write(ifile,'(''Line('',i8,'') = {'',i8,'','',i8,''};'')') &
+                     ncount_spline,ncount_point,np1
+                node_spoke(1,np1) = ncount_spline
+             enddo  ! k
+
+             ! make surfaces at the entry == a 'cap' of four surfaces
+             do k = 0,3
+                line1 = ncount_spline + k - 3
+                line2 = element_spline(1,ne+k)
+                if(k.lt.3)then
+                   line3 = -(line1 + 1)
+                else
+                   line3 = -(ncount_spline - 3)
+                endif
+                ncount_loop = ncount_loop + 1
+                write(ifile,'(''Line Loop('',i8,'') = {'',i8,'','',i8,'','' &
+                     &,i8,''};'')') ncount_loop, line1, line2, line3
+                ncount_loop = ncount_loop + 1
+                write(ifile,'(''Surface('',i8,'') = {'',i8,''};'')') &
+                     ncount_loop, ncount_loop - 1
+                elem_surfaces(1,ne+k) = ncount_loop
+                ncount_cap_entry = ncount_cap_entry + 1
+                ncap_entry(ncount_cap_entry) = ncount_loop
+             enddo  ! k
+          endif
+       endif  ! elem_cnct etc
+
+!!!......... make intermediate points, lines, surfaces, at Xi2=1 for each 'ring' .........
+
+       ! location of points in the Xi+1 direction on the Xi2=1 boundary
+       point_xyz_centre = 0.0_dp
+       np_highest = elem_nodes_2d(3,ne)
+       ncount_spline_0 = ncount_spline + 1
+       do k = 0,3
+          np1 = elem_nodes_2d(3,ne+k)
+          np2 = elem_nodes_2d(4,ne+k)
+          if(node_versn_2d(np1).ge.2.or.node_versn_2d(np2).ge.2)then  ! only for when there is a crux node
+             if(np1.gt.np_highest) np_highest = np1
+             forall (j = 1:3) point_xyz_centre(j) = point_xyz_centre(j) &
+                  + 0.2_dp * node_xyz_2d(1,1,j,np1)
+          else
+             forall (j = 1:3) point_xyz_centre(j) = point_xyz_centre(j) &
+                  + 0.25_dp * node_xyz_2d(1,1,j,np1)
+          endif
+       enddo ! k
+
+       ncount_point = ncount_point + 1
+       if(node_versn_2d(np1).ge.2.or.node_versn_2d(np2).ge.2)then  ! only for when there is a crux node
+          np_highest = elem_nodes_2d(2,elem_cnct_2d(1,1,elem_cnct_2d(2,1,ne)))
+          forall (j = 1:3) point_xyz_centre(j) = point_xyz_centre(j) &
+               + 0.2_dp * node_xyz_2d(1,1,j,np_highest)
+          centre_points(np_highest) = ncount_point   ! record the centre point number for this 'ring'
+       endif
+
+       write(ifile,'(''Point('',i8,'') = {'',f12.7,'','',f12.7,'','' &
+            &,f12.7,'',lc};'')') ncount_point,point_xyz_centre(1:3)
+
+       do k = 0,3
+          np1 = elem_nodes_2d(3,ne+k)
+          centre_points(np1) = ncount_point   ! record the centre point number for this 'ring'
+          ncount_spline = ncount_spline + 1
+          write(ifile,'(''Line('',i8,'') = {'',i8,'','',i8,''};'')') &
+               ncount_spline,ncount_point,np1
+          node_spoke(1,np1) = ncount_spline
+       enddo  ! k
+
+       if(node_versn_2d(np1).ge.2.or.node_versn_2d(np2).ge.2)then  ! only for when there is a crux node
+          np_highest = elem_nodes_2d(2,elem_cnct_2d(1,1,elem_cnct_2d(2,1,ne)))
+
+          if(elems_at_node_2d(np_highest,0).eq.6)then
+             do i = 1,elems_at_node_2d(np_highest,0)
+                ne_next = elems_at_node_2d(np_highest,i)
+                np1 = elem_nodes_2d(1,ne_next)
+                if(np1.eq.np_highest) np1 = &
+                     elem_nodes_2d(2,elems_at_node_2d(np_highest,i))
+                if(node_spoke(1,np1).eq.0)then
+                   ! make a spoke from the centre to this node
+                   ncount_spline = ncount_spline + 1
+                   write(ifile,'(''Line('',i8,'') = {'',i8,'','',i8,''};'')') &
+                        ncount_spline,ncount_point,np1
+                   node_spoke(1,np1) = ncount_spline
+                   elem_surfaces(1,elem_cnct_2d(-2,1,ne_next)) = ncount_loop
+                endif
+             enddo
+          endif
+       endif
+
+!!!....make surface elements at the Xi2=1 end
+       do k = 0,3
+          line1 = node_spoke(1,elem_nodes_2d(3,ne+k))
+          line2 = element_spline(3,ne+k)
+          line3 = -node_spoke(1,elem_nodes_2d(4,ne+k))
+          ncount_loop = ncount_loop + 1
+          write(ifile,'(''Line Loop('',i8,'') = {'',i8,'','',i8,'','',i8,''};'')') &
+               ncount_loop, line1, line2, line3
+          ncount_loop = ncount_loop + 1
+          write(ifile,'(''Surface('',i8,'') = {'',i8,''};'')') &
+               ncount_loop, ncount_loop - 1
+          elem_surfaces(2,ne+k) = ncount_loop
+          if(elem_cnct_2d(2,0,ne+k).ne.0)then
+             elem_surfaces(1,elem_cnct_2d(2,1,ne+k)) = ncount_loop
+          else
+             ! this is an exit 'cap'. store to output as a physical surface
+             ncount_cap_exit = ncount_cap_exit + 1
+             ncap_exit(ncount_cap_exit) = ncount_loop
+          endif
+          ncount_inner = ncount_inner + 1
+          ninner(ncount_inner) = ncount_loop
+       enddo  ! k
+
+       if(node_versn_2d(np1).ge.2.or.node_versn_2d(np2).ge.2)then  ! only for crux node
+          ncount_spline = ncount_spline + 1
+          write(ifile,'(''Line('',i8,'') = {'',i8,'','',i8,''};'')') &
+               ncount_spline,ncount_point,np_highest
+          node_spoke(1,np_highest) = ncount_spline
+
+          ne_next = elem_cnct_2d(1,1,elem_cnct_2d(2,1,ne))
+          line1 = node_spoke(1,elem_nodes_2d(1,ne_next))
+          line2 = element_spline(1,ne_next)
+          line3 = -node_spoke(1,elem_nodes_2d(2,ne_next))
+
+          ncount_loop = ncount_loop + 1
+          write(ifile,'(''Line Loop('',i8,'') = {'',i8,'','',i8,'','',i8,''};'')') &
+               ncount_loop, line1, line2, line3
+          ncount_loop = ncount_loop + 1
+          write(ifile,'(''Surface('',i8,'') = {'',i8,''};'')') &
+               ncount_loop, ncount_loop - 1
+          ncount_inner = ncount_inner + 1
+          ninner(ncount_inner) = ncount_loop
+
+          elem_surfaces(1,ne_next) = ncount_loop
+          ne_next = elem_cnct_2d(-2,1,ne_next)
+          elem_surfaces(1,ne_next) = ncount_loop
+
+          ne_next = elem_cnct_2d(-1,1,elem_cnct_2d(2,1,elem_cnct_2d(-1,1,ne)))
+          line1 = node_spoke(1,elem_nodes_2d(1,ne_next))
+          line2 = element_spline(1,ne_next)
+          line3 = -node_spoke(1,elem_nodes_2d(2,ne_next))
+          ncount_loop = ncount_loop + 1
+          write(ifile,'(''Line Loop('',i8,'') = {'',i8,'','',i8,'','',i8,''};'')') &
+               ncount_loop, line1, line2, line3
+          ncount_loop = ncount_loop + 1
+          write(ifile,'(''Surface('',i8,'') = {'',i8,''};'')') &
+               ncount_loop, ncount_loop - 1
+          ncount_inner = ncount_inner + 1
+          ninner(ncount_inner) = ncount_loop
+
+          elem_surfaces(1,ne_next) = ncount_loop
+          ne_next = elem_cnct_2d(-2,1,ne_next)
+          elem_surfaces(1,ne_next) = ncount_loop
+
+          if(elems_at_node_2d(np_highest,0).eq.6)then
+             do i = 1,elems_at_node_2d(np_highest,0)
+                ne_next = elems_at_node_2d(np_highest,i)
+                if(elem_surfaces(1,ne_next).eq.0)then
+                   ! make an extra surface here
+                   np1 = elem_nodes_2d(1,ne_next)
+                   np2 = elem_nodes_2d(2,ne_next)
+                   line1 = node_spoke(1,np1)
+                   line2 = element_spline(1,ne_next)
+                   line3 = -node_spoke(1,np2)
+                   ncount_loop = ncount_loop + 1
+                   write(ifile,'(''Line Loop('',i8,'') = {'',i8,'','' &
+                        &,i8,'','',i8,''};'')') &
+                        ncount_loop, line1, line2, line3
+                   ncount_loop = ncount_loop + 1
+                   write(ifile,'(''Surface('',i8,'') = {'',i8,''};'')') &
+                        ncount_loop, ncount_loop - 1
+                   ncount_inner = ncount_inner + 1
+                   ninner(ncount_inner) = ncount_loop
+                   elem_surfaces(1,ne_next) = ncount_loop
+                   ne_next = elem_cnct_2d(-2,1,ne_next)
+                   elem_surfaces(1,ne_next) = ncount_loop
+
+                   ne_next = elem_cnct_2d(1,1,ne_next)
+                   np1 = elem_nodes_2d(1,ne_next)
+                   np2 = elem_nodes_2d(2,ne_next)
+                   line1 = node_spoke(1,np1)
+                   line2 = element_spline(1,ne_next)
+                   line3 = -node_spoke(1,np2)
+                   ncount_loop = ncount_loop + 1
+                   write(ifile,'(''Line Loop('',i8,'') = {'',i8,'','' &
+                        &,i8,'','',i8,''};'')') &
+                        ncount_loop, line1, line2, line3
+                   ncount_loop = ncount_loop + 1
+                   write(ifile,'(''Surface('',i8,'') = {'',i8,''};'')') &
+                        ncount_loop, ncount_loop - 1
+                   ncount_inner = ncount_inner + 1
+                   ninner(ncount_inner) = ncount_loop
+                   elem_surfaces(1,ne_next) = ncount_loop
+                   ne_next = elem_cnct_2d(-2,1,ne_next)
+                   elem_surfaces(1,ne_next) = ncount_loop
+
+                endif
+             enddo
+          endif
+       endif
+
+!!!.........Make line along the centre
+       ncount_spline = ncount_spline + 1
+       write(ifile,'(''Line('',i8,'') = {'',i8,'','',i8,''};'')') ncount_spline, &
+            centre_points(elem_nodes_2d(1,ne)),ncount_point
+
+!!! Make surfaces from the centreline
+       do k = 0,3
+          line1 = node_spoke(1,elem_nodes_2d(1,ne+k))
+          line2 = element_spline(4,ne+k)
+          line3 = -node_spoke(1,elem_nodes_2d(3,ne+k))
+          line4 = -ncount_spline ! the newest line
+          ncount_loop = ncount_loop + 1
+          write(ifile,'(''Line Loop('',i8,'') = {'',i8,'','',i8,'','' &
+               &,i8,'','',i8,''};'')') &
+               ncount_loop, line1, line2, line3, line4
+          ncount_loop = ncount_loop + 1
+          write(ifile,'(''Surface('',i8,'') = {'',i8,''};'')') &
+               ncount_loop, ncount_loop - 1
+          ncount_centre = ncount_centre + 1
+          ncentre(ncount_centre) = ncount_loop
+
+          elem_surfaces(4,ne+k) = ncount_loop
+          if(k.gt.0) elem_surfaces(5,ne+k-1) = ncount_loop
+       enddo
+       elem_surfaces(5,ne) = elem_surfaces(4,ne+1)
+       elem_surfaces(5,ne+3) = elem_surfaces(4,ne)
+
+!!! Make surface loops and volumes
+       do k = 0,3
+          ncount_volume = ncount_volume + 1
+          write(ifile,'(''Surface Loop('',i8,'') = {'',i8,'','' &
+               &,i8,'','',i8,'','',i8,'','',i8,''};'')') &
+               ncount_volume,elem_surfaces(1:5,ne+k)
+
+          ncount_volume = ncount_volume + 1
+          write(ifile,'(''Volume('',i8,'') = {'',i8,''};'')') &
+               ncount_volume,ncount_volume-1
+
+          ncount_wall = ncount_wall + 1
+          nwall(ncount_wall) = elem_surfaces(3,ne+k)
+          ncount_phys_vol = ncount_phys_vol + 1
+          nphys_vol(ncount_phys_vol) = ncount_volume
+       enddo
+
+       ne = ne + 4
+
+    enddo ! while (ne.le.num_elems_2d)
+
+    write(ifile,'(/''/* Physical surface for entry caps */'')')
+    write(ifile,'(/''Physical Surface(1) = {'')', advance = "no")
+    do i = 1,ncount_cap_entry-1
+       write(ifile,'(i6,'','')', advance = "no") ncap_entry(i)
+    enddo
+    write(ifile,'(i6,''};'')') ncap_entry(ncount_cap_entry)
+
+    write(ifile,'(/''/* Physical surface for exit caps */'')')
+    write(ifile,'(/''Physical Surface(2) = {'')', advance = "no")
+    do i = 1,ncount_cap_exit-1
+       write(ifile,'(i6,'','')', advance = "no") ncap_exit(i)
+    enddo
+    write(ifile,'(i6,''};'')') ncap_exit(ncount_cap_exit)
+
+    write(ifile,'(/''/* Physical surface for walls */'')')
+    write(ifile,'(/''Physical Surface(3) = {'')', advance = "no")
+    do i = 1,ncount_wall-1
+       write(ifile,'(i6,'','')', advance = "no") nwall(i)
+    enddo
+    write(ifile,'(i6,''};'')') nwall(ncount_wall)
+
+    write(ifile,'(/''/* Physical surface for centres */'')')
+    write(ifile,'(/''Physical Surface(4) = {'')', advance = "no")
+    do i = 1,ncount_centre-1
+       write(ifile,'(i6,'','')', advance = "no") ncentre(i)
+    enddo
+    write(ifile,'(i6,''};'')') ncentre(ncount_centre)
+
+    write(ifile,'(/''Physical Volume(1) = {'')', advance = "no")
+    do i = 1,ncount_phys_vol-1
+       write(ifile,'(i6,'','')', advance = "no") nphys_vol(i)
+    enddo
+    write(ifile,'(i6,''};'')') nphys_vol(ncount_phys_vol)
+
+    write(ifile,'(/)')
+    write(ifile,'(''Mesh.Algorithm = 3;'')') ! Anisotropic
+    write(ifile,'(''Mesh.Smoothing = 4;'')')
+    write(ifile,'(''Mesh.Algorithm3D = 2;'')') ! Netgen
+
+    close(ifile)
+
+    deallocate(centre_points)
+    deallocate(ncap_entry)
+    deallocate(ncap_exit)
+    deallocate(ninner)
+    deallocate(ncentre)
+    deallocate(nphys_vol)
+    deallocate(nwall)
+    deallocate(node_spoke)
+
+    call enter_exit(sub_name,2)
+
+  end subroutine write_3d_geo
+
+!!!#############################################################################
+
 end module geometry

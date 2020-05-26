@@ -3,9 +3,9 @@ module growtree_c
   private
 
 contains
-! 
+!
 !#########################################################################
-! 
+!
 !*growtree:* the main growing subroutine. Generates a volume-filling tree into a closed surface.
   subroutine grow_tree_c(parent_ne, surface_elems, angle_max, angle_min, branch_fraction, length_limit,&
 shortest_length, rotation_limit, to_export, filename, filename_len) bind(C, name="grow_tree_c")
@@ -42,8 +42,36 @@ shortest_length, rotation_limit, to_export, filename_f)
 
   end subroutine grow_tree_c
 
-! 
+!
+!###################################################################################
+!
+
+    subroutine list_mesh_statistics_c(filename, filename_len)&
+   bind(C, name="list_mesh_statistics_c")
+
+      use arrays,only: dp
+      use iso_c_binding, only: c_ptr
+      use utils_c, only: strncpy
+      use other_consts, only: MAX_FILENAME_LEN
+      use growtree, only: list_mesh_statistics
+      implicit none
+
+      integer,intent(in) :: filename_len
+      type(c_ptr), value, intent(in) :: filename
+      character(len=MAX_FILENAME_LEN) :: filename_f
+
+      call strncpy(filename_f, filename, filename_len)
+
+  #if defined _WIN32 && defined __INTEL_COMPILER
+      call so_list_mesh_statistics(filename_f)
+  #else
+      call list_mesh_statistics(filename_f)
+  #endif
+
+    end subroutine list_mesh_statistics_c
+
+!
 !#########################################################################
-! 
+!
 
 end module growtree_c

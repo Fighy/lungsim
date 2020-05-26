@@ -1,9 +1,9 @@
 module mesh_utilities
 
 !!! Subroutines and functions for general calculations. Not specific to any
-!!! particular application, although it is expected these will generally be used 
-!!! for calculations to do with a mesh (not fields or solutions). 
-!!! Any function that is used by more than one module should appear in here. 
+!!! particular application, although it is expected these will generally be used
+!!! for calculations to do with a mesh (not fields or solutions).
+!!! Any function that is used by more than one module should appear in here.
 !!! ALL subroutines and functions in this module are public.
 
 
@@ -14,12 +14,15 @@ module mesh_utilities
 
   private
 
-  public  area_between_three_points,area_between_two_vectors,calc_branch_direction,&
-       angle_btwn_points,angle_btwn_vectors,calc_scale_factors_2d,check_colinear_points,cross_product,&
-       distance_between_points,make_plane_from_3points,mesh_a_x_eq_b,ph3,pl1,&
-       point_internal_to_surface,scalar_product_3,scalar_triple_product,scale_mesh,&
-       unit_norm_to_plane_two_vectors,unit_norm_to_three_points,unit_vector,&
-       vector_length,volume_internal_to_surface
+  public  area_between_three_points,area_between_two_vectors,angle_btwn_points, &
+       angle_btwn_vectors,bifurcation_element,calc_branch_direction, &
+       calc_scale_factors_2d,check_colinear_points,cross_product,&
+       direction_point_to_point,distance_between_points, &
+       distance_from_plane_to_point,make_plane_from_3points, &
+       mesh_a_x_eq_b,ph3,pl1,point_internal_to_surface,scalar_product_3, &
+       scalar_triple_product,scale_mesh,stem_element,terminal_element, &
+       unit_norm_to_plane_two_vectors,unit_norm_to_three_points,unit_vector, &
+       vector_length,volume_internal_to_surface,which_child,mesh_angle
 
 contains
 
@@ -45,8 +48,8 @@ contains
 
   ! angle_btwn_vectors
   ! .... returns the angle between two vectors
- 
-  ! check_colinear_points 
+
+  ! check_colinear_points
   ! .... returns true or false for whether 3 points are colinear
 
   ! cross_product ***
@@ -68,31 +71,31 @@ contains
   ! .... Calculates the length of a 3x1 vector
 
 !!!#####################################################################
-  
+
   subroutine calc_branch_direction(ne)
-    
-!!! calculates the direction of element ne and stores in elem_direction    
-    
+
+!!! calculates the direction of element ne and stores in elem_direction
+
     integer,intent(in) :: ne
-    
+
     integer :: np_end,np_start
     real(dp) :: length
-    
+
     np_start = elem_nodes(1,ne)
     np_end = elem_nodes(2,ne)
-    
+
     length = distance_between_points(node_xyz(1,np_end),node_xyz(1,np_start))
     elem_direction(1:3,ne)=(node_xyz(1:3,np_end)-node_xyz(1:3,np_start))/length
 
   end subroutine calc_branch_direction
 
-!!! ##########################################################################      
+!!! ##########################################################################
 
   subroutine calc_scale_factors_2d(sf_option)
 
 !!! calculates the arclengths and scale factors for 2d surface elements,
 !!! stores in scale_factors_2d
-  
+
     character(len=4),intent(in) :: sf_option
 !!! local variables
     integer,parameter :: num_deriv = 4
@@ -102,7 +105,7 @@ contains
     real(dp) :: DA,SUM1,SUM2,SUM3,SUM4,W,WG_LOCAL(10),XA_LOCAL(4,3),XI,&
          XIGG(10),XN_LOCAL(2,3,4)
     logical :: FOUND
-    
+
     XIGG = [0.6_dp,0.2113248654051_dp,0.7886751345948_dp,0.1127016653792_dp,&
          0.6_dp,0.8872983346207_dp,0.0694318442029_dp,0.3300094782075_dp,&
          0.6699905217924_dp,0.9305681557970_dp]
@@ -113,7 +116,7 @@ contains
     ido = reshape ([1,2,1,2,1,1,2,2],shape(ido))
     NI1 = [1,2,1]
     NNL = reshape([1,2,3,4,1,3,2,4],shape(NNL))
-    
+
     if(.not.allocated(scale_factors_2d)) allocate(scale_factors_2d(16,num_elems_2d))
 
     select case (sf_option)
@@ -146,7 +149,7 @@ contains
                 enddo !nk
              enddo !nj
           enddo !n
-          
+
           SUM2=0.0_dp
           do ng=1,NGA
              XI=XIGG(IG(NGA)+ng)
@@ -157,13 +160,13 @@ contains
                         +PL1(2,k,XI)*XN_LOCAL(1,nj,2)
                 enddo
              enddo
-             
+
              SUM1=XA_LOCAL(2,1)**2+XA_LOCAL(2,2)**2+XA_LOCAL(2,3)**2
              SUM2=SUM2+W*DSQRT(SUM1)
           enddo !ng
-          
+
           arclength(1:3,nl)=SUM2
-          
+
           it=0
           iterative_loop : do
              it=it+1
@@ -206,17 +209,17 @@ contains
                 arclength(3,nl)=1.0_dp
                 exit iterative_loop
              endif
-             
+
              arclength(3,nl) = arclength(3,nl)+DA      !is new arclength
              arclength(1:2,nl) = arclength(3,nl)
-             
+
              if(it.eq.ITMAX) exit iterative_loop
-             
+
           enddo iterative_loop      !iteration
        enddo !loop over lines
-       
+
        scale_factors_2d = 1.0_dp !initialise
-       
+
        do ne=1,num_elems_2d
           do NAE=1,4
              nl = elem_lines_2d(NAE,ne)
@@ -240,22 +243,39 @@ contains
                 enddo !N=1,2
              endif
           enddo !NAE (nl)
-          
+
           NNK=0
           do ns=1,4
              scale_factors_2d(NNK+4,ne)=scale_factors_2d(NNK+2,ne)*scale_factors_2d(NNK+3,ne)
              NNK=NNK+4
           enddo !nn
-          
+
        enddo !noelem (ne)
     end select
 
   end subroutine calc_scale_factors_2d
-  
+
 !!!###############################################################
-  
+
+  function distance_from_plane_to_point(P1,P2,P3,P4)
+
+    !###    calculates the distance from a plane defined by three points
+    !###    and another arbitrary point
+
+    real(dp),intent(in) :: P1(3),P2(3),P3(3),P4(3)
+    real(dp) :: norml(4)
+    real(dp) :: distance_from_plane_to_point
+
+    call make_plane_from_3points(norml,2,P1,P2,P3)
+    distance_from_plane_to_point = abs(scalar_product_3(norml,P4) + norml(4)) / &
+         sqrt(scalar_product_3(norml,norml))
+
+  end function distance_from_plane_to_point
+
+!!!###############################################################
+
   subroutine make_plane_from_3points(NORML,NORMALTYPE,POINT1,POINT2,POINT3)
-    
+
     !###    make_plane_from_3points finds the equation of a plane in three
     !###    dimensions and a vector normal to the plane from three
     !###    non-colinear points.
@@ -263,41 +283,41 @@ contains
     !###    NORMALTYPE=2 for unit normal and plane equation
     !###    The coefficients represent aX + bY + cZ + d = 0
     !###    NORML(1)=a,NORML(2)=b,NORML(3)=c,NORML(4)=d
-    
-    
+
+
     !     Parameter list
     integer :: NORMALTYPE
     real(dp) :: POINT1(3),POINT2(3),POINT3(3),NORML(4)
     !     Local variables
     real(dp) :: DifF1(3),DifF2(3),NORMSIZE
     logical :: COLINEAR
-    
-    
+
+
     ! Check for colinearity
     COLINEAR=.FALSE.
     colinear = check_colinear_points(POINT1,POINT2,POINT3)
     if(.NOT.COLINEAR) then
        DifF1(1:3)=POINT2(1:3)-POINT1(1:3)
        DifF2(1:3)=POINT2(1:3)-POINT3(1:3)
-       
+
        NORML(1)=(DifF1(2)*DifF2(3))-(DifF1(3)*DifF2(2))
        NORML(2)=(DifF1(3)*DifF2(1))-(DifF1(1)*DifF2(3))
        NORML(3)=(DifF1(1)*DifF2(2))-(DifF1(2)*DifF2(1))
-       
+
        if(NORMALTYPE.EQ.2) then
           NORMSIZE = vector_length(NORML)
           NORML(1:3)=NORML(1:3)/NORMSIZE
        endif
 
        NORML(4) = -scalar_product_3(NORML,POINT1)
-       
+
     else !Colinear
-       
+
        WRITE(*,*) ' COLINEAR points in make_plane_from_3points '
        NORML = 0.0_dp
     endif
   end subroutine make_plane_from_3points
-  
+
 !!!##################################################
 
   subroutine scale_mesh(scaling,type)
@@ -312,63 +332,63 @@ contains
        node_xyz_2d = node_xyz_2d * scaling
        node_xyz_2d(4,:,:,:) = 0.0_dp
     end select
-    
+
     scale_factors_2d = 1.0_dp
 
   end subroutine scale_mesh
 
 !!!##################################################
-  
+
   function area_between_two_vectors(vect_a,vect_b)
-    
-    !### 
-    
+
+    !###
+
     real(dp),intent(in) :: vect_a(3),vect_b(3)
     real(dp) :: cross(3)
     real(dp) :: area_between_two_vectors
-    
+
     ! area = 1/2 x magnitude of the cross-product of vectors a and b
-    
+
     cross = cross_product(vect_a,vect_b)
     area_between_two_vectors = 0.5_dp * sqrt(dot_product(cross,cross))
-    
+
   end function area_between_two_vectors
-  
+
 
 !!!##################################################
-  
+
   function area_between_three_points(point_a,point_b,point_c)
-    
-    !### 
-    
+
+    !###
+
     real(dp),intent(in) :: point_a(3),point_b(3),point_c(3)
     real(dp) :: norm(3),vect_a(3),vect_b(3)
     real(dp) :: area_between_three_points
-    
+
     ! area = 1/2 x magnitude of the cross-product of vectors a and b
-    
+
     vect_a(1:3) = point_a(1:3) - point_b(1:3)
     vect_b(1:3) = point_a(1:3) - point_c(1:3)
     norm = cross_product(vect_a,vect_b)
     area_between_three_points = 0.5_dp * sqrt(dot_product(norm,norm))
-    
-  end function area_between_three_points
-  
 
-!!! ##########################################################################      
+  end function area_between_three_points
+
+
+!!! ##########################################################################
 
   function ph3(I,J,K,XI)
-    
+
 !!! dummy arguments
     integer :: I,I_J_K,J,K
     real(dp) :: XI
 !!! local variables
     real(dp) :: ph3
-    
+
     ! K is 1,2, or 3; J is 1 or 2; I is 1 or 2
-    
+
     I_J_K = 100*I + 10*J + K
-    
+
     select case(I_J_K)
     case(111) !i=1,j=1,k=1
        PH3=(2.0_dp*XI-3.0_dp)*XI*XI+1.0_dp  ! 2xi^3-3xi^2+1
@@ -395,21 +415,21 @@ contains
     case(223) !i=2,j=2,k=3
        PH3=6.0_dp*XI-2.0_dp                ! 6xi-2
     end select
-    
+
   end function ph3
 
-!!! ##########################################################################      
+!!! ##########################################################################
 
   function pl1(I,K,XI)
-    
+
 !!! dummy arguments
     integer :: I,I_K,K
     real(dp) :: XI
 !!! local variables
     real(dp) :: pl1
-    
+
     I_K = 10*I + K
-    
+
     select case(I_K)
     case(11) !i=1,k=1
        PL1=1.0_dp-XI
@@ -422,27 +442,27 @@ contains
     case(30 :) !k=3
        PL1=0.0_dp
     end select
-    
+
     return
   end function pl1
 
 !!!##################################################
-  
+
   function unit_norm_to_plane_two_vectors(vect_a,vect_b)
-    
+
     real(dp),intent(in) :: vect_a(3),vect_b(3)
     real(dp) :: magnitude,norm(3)
     real(dp) :: unit_norm_to_plane_two_vectors(3)
-    
+
     norm = cross_product(vect_a,vect_b)
     magnitude = sqrt(dot_product(norm,norm))
     unit_norm_to_plane_two_vectors = norm/magnitude
-    
+
   end function unit_norm_to_plane_two_vectors
-  
+
 
 !!!##################################################
-  
+
   function unit_norm_to_three_points(point_a,point_b,point_c)
 
     real(dp),intent(in) :: point_a(3),point_b(3),point_c(3)
@@ -458,12 +478,12 @@ contains
   end function unit_norm_to_three_points
 
 !!!##################################################
-  
+
 
   function angle_btwn_points(A,B,C)
-    
+
     !###    calculates the angle between three points
-    
+
     real(dp),intent(in) :: A(3),B(3),C(3)
 
     real(dp) :: U(3),V(3)
@@ -472,19 +492,19 @@ contains
     U = A - B
     V = C - B
     angle_btwn_points = angle_btwn_vectors(U,V)
-        
+
   end function angle_btwn_points
-  
+
 !!!##################################################
 
   function angle_btwn_vectors(U,V)
-    
+
     !###    ANGLE calculates the angle between two vectors
-    
+
     real(dp),intent(in) :: U(3),V(3)
 
     real(dp) :: ANGLE,angle_btwn_vectors,N_U(3),N_V(3)
-    
+
     N_U = unit_vector(U)
     N_V = unit_vector(V)
 
@@ -494,22 +514,22 @@ contains
     ANGLE = acos(ANGLE)
 
     angle_btwn_vectors=ANGLE
-    
+
   end function angle_btwn_vectors
-  
+
 !!!###############################################################
-  
+
   function check_colinear_points(POINT1,POINT2,POINT3)
-    
+
     !###    check_colinear_points checks whether two vectors are colinear.
-     
+
     !     Parameter list
     real(dp) :: POINT1(3),POINT2(3),POINT3(3)
     !     Local variables
     real(dp) :: ERR1(3),ERR2(3),LU,LV,U(3),V(3)
     logical :: check_colinear_points
-    
-    
+
+
     check_colinear_points =.FALSE.
     U(1:3)=POINT2(1:3)-POINT1(1:3)
     V(1:3)=POINT3(1:3)-POINT1(1:3)
@@ -517,7 +537,7 @@ contains
     LV = vector_length(V)
     ! If 2 of the points are the same then LU and LV
     ! can be zero causing div by zero below and resulting in
-    ! the wrong answer (on Linux) 
+    ! the wrong answer (on Linux)
     if((dabs(LU)>zero_tol).AND.(dabs(LV)>zero_tol)) then
        ERR1(1:3)=DABS(U(1:3)/LU-V(1:3)/LV)
        ERR2(1:3)=DABS(U(1:3)/LU+V(1:3)/LV)
@@ -528,70 +548,85 @@ contains
        check_colinear_points=.TRUE.
     endif
   end function check_colinear_points
-  
+
 
 !!!###############################################################
-  
+
   function cross_product(A,B)
-    
+
     !###  cross_product returns the vector cross product of A*B in C.
-    
+
     !     Parameter List
     real(dp),intent(in) :: A(3),B(3)
 
     real(dp) :: cross_product(3)
-    
+
     cross_product(1) = A(2)*B(3)-A(3)*B(2)
     cross_product(2) = A(3)*B(1)-A(1)*B(3)
     cross_product(3) = A(1)*B(2)-A(2)*B(1)
-    
+
   end function cross_product
-  
+
+!!! ##########################################################################
+
+  function direction_point_to_point(point_start,point_end)
+
+    real(dp),intent(in) :: point_start(:),point_end(:)
+
+    real(dp) :: vector(3)
+    real(dp) :: direction_point_to_point(3)
+
+    vector(1:3) = point_end(1:3) - point_start(1:3)
+    vector(1:3) = unit_vector(vector)
+    direction_point_to_point = vector
+
+  end function direction_point_to_point
+
 !!!###############################################################
-  
+
   function scalar_triple_product(A,B,C)
-    
+
     !###  scalar_triple_product returns A.(BxC)
-    
+
     !     Parameter List
     real(dp),intent(in) :: A(3),B(3),C(3)
 
     real(dp) :: scalar_triple_product
-    
+
     scalar_triple_product = A(1)*(B(2)*C(3)-B(3)*C(2)) + &
          A(2)*(B(3)*C(1)-B(1)*C(3)) + A(3)*(B(1)*C(2)-B(2)*C(1))
-    
+
   end function scalar_triple_product
-  
+
 !!!###############################################################
-  
+
   function distance_between_points(point1, point2)
-    
+
     !###    calculates the distance between two arbitrary points
-    
+
     real(dp),intent(in) :: point1(3),point2(3)
     integer :: i
     real(dp) :: distance_between_points
-    
+
     distance_between_points = 0.0_dp
     do i=1,3
        distance_between_points = distance_between_points + (point1(i)-point2(i))**2
     enddo
     distance_between_points = dsqrt(distance_between_points)
-    
+
   end function distance_between_points
-  
+
 !!!###############################################################
-  
+
   function mesh_a_x_eq_b(MATRIX,VECTOR)
-    
+
     real(dp) :: MATRIX(3,3),VECTOR(3)
     !Local variables
     integer :: i,j,k,pivot_row
     real(dp) :: A(3,4),max,pivot_value,SOLUTION(3),TEMP(4)
     real(dp) :: mesh_a_x_eq_b(3)
-    
-    
+
+
     A(1:3,1:3) = MATRIX(1:3,1:3)
     A(1:3,4) = VECTOR(1:3)
     do k=1,2
@@ -623,35 +658,35 @@ contains
     A(1,4) = A(1,4)-A(3,4)*A(1,3)-A(2,4)*A(1,2)
 
     SOLUTION(1:3) = A(1:3,4)
-    
+
     mesh_a_x_eq_b = solution
 
   end function mesh_a_x_eq_b
-  
+
 !!!##################################################
-  
+
   function scalar_product_3(A,B)
-    
+
     !### calculates scalar product of two vectors A,B of length 3.
-    
+
     real(dp),intent(in) :: A(*),B(*)
 
     integer :: i
     real(dp) :: scalar_product_3
-    
+
     scalar_product_3 = 0.0_dp
     do i=1,3
        scalar_product_3 = scalar_product_3 + A(i)*B(i)
     enddo
-    
+
   end function scalar_product_3
-  
+
 !!!###############################################################
-  
+
   function unit_vector(A)
-    
-    !###  Calculates the unit vector for an arbitrary 3x1 vector 
-    
+
+    !###  Calculates the unit vector for an arbitrary 3x1 vector
+
     real(dp),intent(in) :: A(*)
     real(dp) :: length_a,unit_vector(3)
 
@@ -667,23 +702,23 @@ contains
   end function unit_vector
 
 !!!##################################################
-  
+
   function vector_length(A)
-    
-    !###  Calculates the length of a 3x1 vector 
-    
+
+    !###  Calculates the length of a 3x1 vector
+
     real(dp),intent(in) :: A(*)
     real(dp) :: vector_length
     integer :: i
-    
+
     vector_length = 0.0_dp
     do i=1,3
        vector_length = vector_length + A(i)*A(i)
     enddo
     vector_length = dsqrt(vector_length)
-    
+
   end function vector_length
-  
+
 !!!###############################################################
 
   function volume_internal_to_surface(triangles,vertex_xyz)
@@ -718,8 +753,8 @@ contains
 !!!###############################################################
 
   function point_internal_to_surface(num_vertices,triangles,point_xyz,vertex_xyz)
-!!! Cast a line in positive x-direction from each data point and 
-!!! then work out how many triangular elements it crosses. If even it is in the 
+!!! Cast a line in positive x-direction from each data point and
+!!! then work out how many triangular elements it crosses. If even it is in the
 !!! shape and if odd it is outside the shape
 
     integer,intent(in) :: num_vertices,triangles(:,:)
@@ -769,7 +804,7 @@ contains
           endif
        endif
     enddo
-    
+
     if(.not.cross_any)then
        point_internal_to_surface = .true.
     else
@@ -782,6 +817,199 @@ contains
 
   end function point_internal_to_surface
 
+  !
+  ! ##########################################################################
+  !
+        subroutine mesh_angle(ANGLE,XP1,XP2,XP3)
 
+      !#### Subroutine: MESH_ANGLE
+      !###  Description:
+      !###  MESH_ANGLE calculates the angle between vectors XP1-XP2 and XP2-XP3
+          use arrays,only: dp,elems,elem_cnct,elem_direction,elem_field
+          use diagnostics,only: enter_exit
+
+          IMPLICIT NONE
+      !   INCLUDE 'geom00.cmn'
+      !   INCLUDE 'tol00.cmn'
+
+          real(dp),INTENT(INOUT) :: ANGLE
+          real(dp),INTENT(IN) :: XP1(3),XP2(3),XP3(3)
+
+          !Local variables
+          INTEGER :: nj
+          REAL(dp) :: SCALAR,U(3),V(3)
+          character(len=60) :: sub_name
+
+          sub_name = 'mesh_angle'
+          call enter_exit(sub_name,1)
+
+
+           DO nj=1,3
+             U(nj)=XP2(nj)-XP1(nj) !end - start
+             V(nj)=XP3(nj)-XP2(nj) !end - start
+           ENDDO !nj
+
+  !bsha          !CALL normalise(3,U)
+          U = unit_vector(U) ! added by bsha replaced for normalise
+  !bsha          !CALL normalise(3,V)
+          V = unit_vector(V) ! added by bsha replaced for normalise
+
+
+  !bsha          ANGLE=scalar_f(3,U,V) scalar_f is not defined, replacing with scalar_product_3
+            ANGLE = scalar_product_3(U, V)
+            ANGLE=MAX(-1.d0,ANGLE)
+            ANGLE=MIN(1.d0,ANGLE)
+            ANGLE=DACOS(ANGLE)
+
+          call enter_exit(sub_name,2)
+        end subroutine mesh_angle
+
+  !
+  ! ##########################################################################
+  !
+!           subroutine mesh_plane_angle(NBJ,ne,NPNE,ANGLE,XP)
+!
+!         !#### Subroutine: MESH_PLANE_ANGLE
+!         !###  Description:
+!         !###  MESH_PLANE_ANGLE calculates the rotation angle between the
+!         !###  branching planes of a parent (ne) and its child branches.
+!
+!             use arrays,only: dp,elem_cnct
+!
+! !bsha              !IMPLICIT NONE
+!
+!         !!     INCLUDE 'b00.cmn'
+!         !!     INCLUDE 'b01.cmn'
+!         !!     INCLUDE 'cbdi02.cmn'
+!         !!     INCLUDE 'geom00.cmn'
+!         !!     INCLUDE 'tol00.cmn'
+!
+!         !!  Parameter list
+!               INTEGER :: NBJ(NJM,NEM),ne,NPNE(NNM,NBFM,NEM),&
+!                 NXI(-NIM:NIM,0:NEIM,0:NEM)
+!               REAL*8 ANGLE,XP(NKM,NVM,NJM,NPM)
+!
+!         !! Local variables
+!               INTEGER nb,ne0,ne1,nj,np1,np2,np3,np4,np5
+!               REAL*8 norm_1(4),norm_2(4),SCALAR,XPOINT(3,5),temp
+!   !bsha            REAL*8 CALC_ANGLE   seems like it is not needed to be defined
+!
+!               nb=NBJ(1,ne)
+!               ne0=NXI(-1,1,ne) !parent element
+!               np1=NPNE(1,nb,ne) !start node
+!               np2=NPNE(2,nb,ne) !end node
+!               ne1=NXI(1,1,ne0)
+!
+!         !!     IF(DOP)THEN
+!         !!       WRITE(OP_STRING,'(5(I6))') nb,ne0,np1,np2,ne1
+!         !!       CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
+!         !!     ENDIF
+!
+!               IF(ne1.EQ.ne) ne1=NXI(1,2,ne0) !sibling
+!               np3=NPNE(2,nb,ne1) !end node of sibling
+!               np4=NPNE(2,nb,NXI(1,1,ne)) !end node of first child
+!               np5=NPNE(2,nb,NXI(1,2,ne)) !end node of second child
+!
+!               DO nj=1,3
+!                 XPOINT(nj,1)=XP(1,1,nj,np1)
+!                 XPOINT(nj,2)=XP(1,1,nj,np2)
+!                 XPOINT(nj,3)=XP(1,1,nj,np3)
+!                 XPOINT(nj,4)=XP(1,1,nj,np4)
+!                 XPOINT(nj,5)=XP(1,1,nj,np5)
+!               ENDDO !nj
+!
+!               CALL make_plane_from_3points(norm_1,2,XPOINT(1,1),XPOINT(1,2),XPOINT(1,3))
+!               CALL normalise2(4,norm_1,temp) !unit vector
+!               !norm_1 = unit_vector(norm_1) ! added by bsha replaced for normalise
+!               CALL make_plane_from_3points(norm_2,2,XPOINT(1,2),XPOINT(1,4),XPOINT(1,5))
+!               CALL normalise2(4,norm_2,temp)
+!               !norm_2 = unit_vector(norm_2) ! added by bsha replaced for normalise
+!
+!   !bsha            ANGLE=CALC_ANGLE(norm_1,norm_2) this seems wrong, because CALC_ANGLE is not a funtion nor a subroutine
+!   ! and defined as a double-precision variable above
+!               ANGLE = angle_btwn_vectors(norm_1, norm_2) !bsha replacing the CALC_ANGLE
+!
+!           end subroutine mesh_plane_angle
+
+
+!!!#############################################################################
+
+  function terminal_element(ne)
+    !*terminal element:* returns 'true' if a 1d element has no elements adjacent
+    ! in the Xi+1 direction
+    integer,intent(in) :: ne
+    logical :: terminal_element
+
+    ! --------------------------------------------------------------------------
+
+    if(elem_cnct(1,0,ne).eq.0)then
+       terminal_element = .true.
+    else
+       terminal_element = .false.
+    endif
+
+  end function terminal_element
+
+!!!#############################################################################
+
+  function stem_element(ne)
+    !*stem element:* returns 'true' if a 1d element has no elements adjacent
+    ! in the Xi-1 direction
+    integer,intent(in) :: ne
+    logical :: stem_element
+
+    ! --------------------------------------------------------------------------
+
+    if(elem_cnct(-1,0,ne).eq.0)then
+       stem_element = .true.
+    else
+       stem_element = .false.
+    endif
+
+  end function stem_element
+
+!!!#############################################################################
+
+  function bifurcation_element(ne)
+    !*bifurcation element:* returns 'true' if a 1d element has two elements
+    ! adjacent in the Xi+1 direction (i.e. parent of a bifurcation)
+    integer,intent(in) :: ne
+    logical :: bifurcation_element
+
+    ! --------------------------------------------------------------------------
+
+    if(ne.eq.0)then
+       bifurcation_element = .false.
+    elseif(elem_cnct(1,0,ne).eq.2)then
+       bifurcation_element = .true.
+    else
+       bifurcation_element = .false.
+    endif
+
+  end function bifurcation_element
+
+!!!#############################################################################
+
+  function which_child(ne,ne0)
+    !*which child:* returns '1' if ne is recorded as the first child element of
+    ! element ne0, and '2' if the second
+    integer,intent(in) :: ne,ne0
+    integer :: which_child
+
+    ! --------------------------------------------------------------------------
+
+    if(elem_cnct(1,1,ne0).eq.ne) then
+       which_child = 1
+    elseif(elem_cnct(1,2,ne0).eq.ne) then
+       which_child = 2
+    else
+       write(*,'('' Warning! element'',i6,'' is not a child element of'',i6)') &
+            ne,ne0
+       which_child = 0
+    endif
+
+  end function which_child
+
+!!!#############################################################################
 
 end module mesh_utilities

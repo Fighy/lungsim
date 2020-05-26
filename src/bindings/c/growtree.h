@@ -5,5 +5,6 @@
 #include "symbol_export.h"
 
 SHO_PUBLIC void grow_tree(int parent_ne, int surface_elems, double angle_max, double angle_min, double branch_fraction, double length_limit, double shortest_length, double rotation_limit, int to_export, const char *filename);
+SHO_PUBLIC void list_mesh_statistics(const char *filename);
 
 #endif /* AETHER_GROWTREE_H */
