@@ -1666,7 +1666,8 @@ contains
        integer :: nbin,count_bins(2,100)
        integer,parameter :: num_bins = 20
        integer,parameter :: NUM_SCHEMES = 3  !bsha Generation, Horsefield, Strahler
-       logical :: add, DIAM_STRAHLER
+       logical :: add
+       logical,parameter :: DIAM_STRAHLER = FALSE
        character(len=200) :: opfile
 
        character(len=60) :: sub_name = 'list_mesh_statistics'
@@ -1680,9 +1681,8 @@ contains
        if(.not.allocated(std_dev)) allocate(std_dev(4,6,num_elems))
 
   ! QUESTION FOR MHT - are these still needed ?
-  ! What is NBJ and NPNE ???
   ! MHT, Do we need still have nbranches ?
-  ! QUESTION: WHat is NMAX_GEN and NUM_SCHEMES ?
+  ! QUESTION: WHat is NMAX_GEN 
 
        if(.not.allocated(n_terminal)) allocate(n_terminal(num_elems))
        if(.not.allocated(nbranches)) allocate(nbranches(5,num_elems))
@@ -2022,7 +2022,8 @@ contains
 
        !CC. Summary statistics from CE
        DO noelem=1,elems(0)
-          ne=elems(noelem)
+  !       ne=elems(noelem)
+          ne=elem_cnct(-1,1,noelem) !parent
           DO j=11,21
             IF(stats(j,ne).LT.undefined)THEN
               means(j-7)=means(j-7)+stats(j,ne)
@@ -2061,12 +2062,12 @@ contains
        ENDDO !N
 
        DO noelem = 1,num_elems
-            ne=elems(noelem)
-            DO j=11,21
-              IF(stats(j,ne).LT.undefined)THEN
-                sdt(j-7)=sdt(j-7)+(stats(j,ne)-means(j-7))**2
-              ENDIF
-            ENDDO !j
+         ne=elems(noelem)
+         DO j=11,21
+           IF(stats(j,ne).LT.undefined)THEN
+             sdt(j-7)=sdt(j-7)+(stats(j,ne)-means(j-7))**2
+           ENDIF
+         ENDDO !j
        ENDDO !noelem
        !!---------------------------------------------------
 
@@ -2171,12 +2172,9 @@ contains
               sum_mean(i,6,N)
           ENDDO
 
-          WRITE(10,*) 'Strahler  #branches   Length   Diameter  Branching  Rotation  ratio L:D'
-  !       CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-          WRITE(10,*) ' order  (mm)   (mm)  angle(deg)  angle(deg)'
-  !       CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-          WRITE(10,*) '------------------------------------------'
-  !       CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
+          WRITE(10,*) 'Strahler  #branches   Length   Diameter  Branching   Rotation    ratio L:D'
+          WRITE(10,*) ' order               (mm)       (mm)     angle(deg)  angle(deg)'
+          WRITE(10,*) '---------------------------------------------------------------------'
 
           !=======
           i=3
@@ -2196,12 +2194,9 @@ contains
           IF(DIAM_STRAHLER) THEN
             WRITE(10,*)  &
               'Diam-Def  Strahler  #branches   Length  Diameter  Branching   Rotation  ratio  L:D'
-  !         CALL WRITES(IOFI,OP_STRING)
             WRITE(10,*) 'order    (mm)    (mm)   angle(deg)   angle(deg)'
-  !         CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
 
             WRITE(10,'(115(''-''))')
-  !         CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
 
             i=4
             DO N=1,NMAX_GEN(i)
@@ -2212,7 +2207,6 @@ contains
                 sum_mean(i,3,N),std_dev(i,3,N), &
                 sum_mean(i,4,N),std_dev(i,4,N), &
                 sum_mean(i,5,N),std_dev(i,5,N)
-  !           CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
             ENDDO
           ENDIF !DIAM_STRAHLER
           !---------------------------------------------------
