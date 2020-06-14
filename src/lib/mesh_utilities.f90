@@ -820,7 +820,7 @@ contains
   !
   ! ##########################################################################
   !
-        subroutine mesh_angle(ANGLE,XP1,XP2,XP3)
+  subroutine mesh_angle(ANGLE,XP1,XP2,XP3)
 
       !#### Subroutine: MESH_ANGLE
       !###  Description:
@@ -862,7 +862,7 @@ contains
             ANGLE=DACOS(ANGLE)
 
           call enter_exit(sub_name,2)
-        end subroutine mesh_angle
+  end subroutine mesh_angle
 
   !
   ! ##########################################################################

@@ -1634,10 +1634,9 @@ contains
 
        integer :: index(4),ntotaln(20),ntotal
        integer, allocatable :: nbranches(:,:)
-       real(dp),allocatable ::  stats(:,:), branches(:,:), std_dev(:,:,:)
-       real(dp),allocatable ::  sum_mean(:,:,:)
-  !    real(dp),allocatable ::  n_terminal(:,:,:),ntally(:,:,:)
-       real(dp),allocatable ::  ntally(:,:,:)
+       real(dp),allocatable :: stats(:,:), branches(:,:), std_dev(:,:,:)
+       real(dp),allocatable :: sum_mean(:,:,:)
+       real(dp),allocatable :: ntally(:,:,:)
        integer,allocatable ::  n_terminal(:), NORD(:,:)
 
        real(dp) :: xp1(3), xp2(3), xp3(3), sum_term
@@ -1709,8 +1708,10 @@ contains
        num_llp = 0
        ntotal = 0 ! added by bsha - seems like it's a counter so initialised from zero
 
+       write(*,*) 'HBK number of elems=',num_elems
        do ne = 1,num_elems
          ne0 = elem_cnct(-1,1,ne)
+         write(*,*) 'HBK parent=',ne,ne0
          add = .false.
          if(ne0.eq.0)then !stem of tree
             add = .true.
@@ -1721,6 +1722,8 @@ contains
          if(add)then
             n_branch = n_branch + 1
             n_order = elem_ordrs(2,ne)
+            write(*,*) 'HBK elem ordr=',elem_ordrs(2,ne)
+            write(*,*) 'HBK diam=',elem_field(ne_radius,ne)
             nmax_order = max(n_order,nmax_order)
             num_in_order(n_order) = num_in_order(n_order) + 1
             ! Add length of all segments along branch, calculate mean diameter
@@ -1728,11 +1731,14 @@ contains
             mean_diameter = elem_field(ne_radius,ne) * 2.0_dp
             total_length = elem_field(ne_length,ne)
             ne_next=ne
+            write(*,*) 'HBK daughters=',elem_cnct(1,0,ne),elem_cnct(1,1,ne)
             do while(elem_cnct(1,0,ne_next).eq.1.and.elem_symmetry(ne_next).eq.1)
               ne_next = elem_cnct(1,1,ne_next) !next segment
               total_length = total_length + elem_field(ne_length,ne_next) !sum lengths
               mean_diameter = mean_diameter  &
                        + elem_field(ne_radius,ne_next) * 2.0
+              write(*,*) 'HBKlength=',elem_field(ne_length,ne_next) 
+              write(*,*) 'HBKradius=',elem_field(ne_radius,ne_next) 
               n_segments = n_segments + 1 !count number of segments in branch
 
               diameters(ne) = elem_field(ne_radius,ne_next)*2.0
@@ -1760,17 +1766,23 @@ contains
   !! HARI MIGRATED
   !         IF(INDEX(1).GT.1)THEN
   !HBK       nb=NBJ(1,ne)
-             np0=elem_cnct(1,0,ne) !start of parent
-             np1=elem_cnct(1,1,ne) !start node
-             np2=elem_cnct(1,2,ne) !end node
+            np0=elem_cnct(1,0,ne) !start of parent
+            np1=elem_cnct(1,1,ne) !start node
+            np2=elem_cnct(1,2,ne) !end node
+            IF(elem_cnct(1,0,ne).NE.0) then
+             write(*,*) 'HBK branch=',np0,np1,np2
+             write(*,*) 'HBK node xyz=', node_xyz(1,np1), node_xyz(1,np2)
              DO nj=1,3
               xp1(nj)=node_xyz(nj,np0)
               xp2(nj)=node_xyz(nj,np1)
               xp3(nj)=node_xyz(nj,np2)
              ENDDO !nj
+             write(*,*) 'HBKcalling mesh angle'
              call mesh_angle(angle,xp1,xp2,xp3)
+             write(*,*) 'HBK done mesh angle'
              stats(2,ne)=angle !temporary storage of angle
-             branches(3,N)=angle*180.d0/PI !store the branching angle to parent
+             !HBKbranches(3,N)=angle*180.d0/PI !store the branching angle to parent
+             branches(3,ne)=angle*180.d0/PI !store the branching angle to parent
 
              ntotal=ntotal+1
              IF(diameters(ne0).GT.0.d0.AND.diameters(ne).GT.0.d0)THEN
@@ -1778,40 +1790,41 @@ contains
                 num_ddp = num_ddp + 1
               ENDIF
              ENDIF
+            ENDIF
 
-             IF(diameters(ne0).GE.4.d0) THEN
-               nbins(1)=nbins(1)+1
-               bins(1)=bins(1)+angle
-             ELSE IF(diameters(ne0).GE.2.d0) THEN
-               nbins(2)=nbins(2)+1
-               bins(2)=bins(2)+angle
-             ELSE IF(diameters(ne0).GE.1.d0) THEN
-               nbins(3)=nbins(3)+1
-               bins(3)=bins(3)+angle
-             ELSE IF(diameters(ne0).GE.0.7d0) THEN
-               nbins(4)=nbins(4)+1
-               bins(4)=bins(4)+angle
-             ENDIF
-  !          ELSE
-  !            branches(3,N)=undefined
-  !          ENDIF
+            IF(diameters(ne0).GE.4.d0) THEN
+              nbins(1)=nbins(1)+1
+              bins(1)=bins(1)+angle
+            ELSE IF(diameters(ne0).GE.2.d0) THEN
+              nbins(2)=nbins(2)+1
+              bins(2)=bins(2)+angle
+            ELSE IF(diameters(ne0).GE.1.d0) THEN
+              nbins(3)=nbins(3)+1
+              bins(3)=bins(3)+angle
+            ELSE IF(diameters(ne0).GE.0.7d0) THEN
+              nbins(4)=nbins(4)+1
+              bins(4)=bins(4)+angle
+            ENDIF
+  !         ELSE
+  !           branches(3,N)=undefined
+  !         ENDIF
 
   !        ne_next=ne
   !        do while(elem_cnct(1,0,ne_next).eq.1.and.elem_symmetry(ne_next).eq.1)
 
-             stats(5,ne)=lengths(ne)
-             ne_next=ne
-             if(elem_cnct(1,0,ne_next).EQ.1) then
-               ne_next=elem_cnct(1,1,ne_next)
-               stats(5,ne)=stats(5,ne)+lengths(ne_next)
-             endif
+            stats(5,ne)=lengths(ne)
+            ne_next=ne
+            if(elem_cnct(1,0,ne_next).EQ.1) then
+              ne_next=elem_cnct(1,1,ne_next)
+              stats(5,ne)=stats(5,ne)+lengths(ne_next)
+            endif
 
             if(elem_cnct(1,0,ne).EQ.0) then
               n_terminal(1)=n_terminal(1)+1
             endif
 
             !CC... Geometric properties of mesh
-            branches(4,N)=undefined !initialise to no rotation angle
+            branches(4,ne)=undefined !initialise to no rotation angle
             IF(elem_cnct(-1,0,ne).GT.0.AND.elem_cnct(1,0,ne).GT.1) then
               ne0=elem_cnct(-1,1,ne) !parent
               IF(elem_cnct(1,0,ne0).GT.1) then
@@ -1832,9 +1845,10 @@ contains
                 ! xp5(nj)=node_xyz()
                 !ENDDO !nj
 
-!bsha                CALL mesh_plane_angle(NBJ,ne,NPNE,angle,XP)
+!bsha  CALL mesh_plane_angle(NBJ,ne,NPNE,angle,XP)
+                write(*,*) 'calling rotation angle'
                 angle = rotation_angle(np1, np2, nd12, nd21, nd22)
-                branches(4,N)=angle*180.d0/PI !rotation angle
+                branches(4,ne)=angle*180.d0/PI !rotation angle
               ENDIF
             ENDIF
 
@@ -1916,79 +1930,77 @@ contains
   !!          ENDIF !DOP
 
           ENDIF !elem_cnct
-        ENDDO !noelem
-        !=======================
-        !=======================
+       ENDDO !noelem
+       !=======================
+       !=======================
 
-
-        !C -------------------------------------------------------------
-        !C .. Calculate mean branching statistics from values in branches
-        DO N=1,n_branch
+       !C -------------------------------------------------------------
+       !C .. Calculate mean branching statistics from values in branches
+       DO N=1,n_branch
 
           !i : for generations, Horsfield orders, Strahler orders
           DO i=1,NUM_SCHEMES
           nindex(i)=nbranches(i,N)
 
-           !.............................................
-           !C... length and diameter
-           DO j=1,2
-             sum_mean(i,j,nindex(i))=sum_mean(i,j,nindex(i))+ &
-               branches(j,N)
-             IF(i.EQ.3.AND.j.EQ.1)THEN
-               IF(nindex(i).NE.nbranches(5,N))THEN !not same as parent
-                 ntally(i,j,nindex(i))=ntally(i,j,nindex(i))+1
-               ENDIF
-             ELSE
-               ntally(i,j,nindex(i))=ntally(i,j,nindex(i))+1
-             ENDIF
-           ENDDO !j
-           !C.. length and diameter
-           !.............................................
+          !.............................................
+          !C... length and diameter
+          DO j=1,2
+            sum_mean(i,j,nindex(i))=sum_mean(i,j,nindex(i))+ &
+              branches(j,N)
+            IF(i.EQ.3.AND.j.EQ.1)THEN
+              IF(nindex(i).NE.nbranches(5,N))THEN !not same as parent
+                ntally(i,j,nindex(i))=ntally(i,j,nindex(i))+1
+              ENDIF
+            ELSE
+              ntally(i,j,nindex(i))=ntally(i,j,nindex(i))+1
+            ENDIF
+          ENDDO !j
+          !C.. length and diameter
+          !.............................................
+
+          !...........................................
+          !CCC. branching angle and rotation angle(j=3,4)
+          DO j=3,4
+            IF(branches(j,N).LT.undefined)THEN
+              sum_mean(i,j,nindex(i))=sum_mean(i,j,nindex(i))+branches(j,N)
+              ntally(i,j,nindex(i))=ntally(i,j,nindex(i))+1
+            ENDIF
+          ENDDO !j
+          !CCC . branching angle and rotation angle
+          !...........................................
 
 
-           !...........................................
-           !CCC. branching angle and rotation angle(j=3,4)
-           DO j=3,4
-             IF(branches(j,N).LT.undefined)THEN
-               sum_mean(i,j,nindex(i))=sum_mean(i,j,nindex(i))+branches(j,N)
-               ntally(i,j,nindex(i))=ntally(i,j,nindex(i))+1
-             ENDIF
-           ENDDO !j
-           !CCC . branching angle and rotation angle
-           !...........................................
+          !..........................................
+          !. ratio of L:D (j=5)
+          j=5
+          IF(branches(j,N).LT.undefined)THEN
+            sum_mean(i,j,nindex(i))=sum_mean(i,j,nindex(i))+branches(j,N)
+            ntally(i,j,nindex(i))=ntally(i,j,nindex(i))+1
+          ENDIF
+          !..........................................
 
+       ENDDO !i
 
-           !..........................................
-           !. ratio of L:D (j=5)
-           j=5
-           IF(branches(j,N).LT.undefined)THEN
-             sum_mean(i,j,nindex(i))=sum_mean(i,j,nindex(i))+branches(j,N)
-             ntally(i,j,nindex(i))=ntally(i,j,nindex(i))+1
-           ENDIF
-           !..........................................
+          !C.. Summary statistics from branches
+          DO j=3,5 !branching angle, rotation angle, L/D
+            IF(branches(j,N).LT.undefined)THEN
+              means(j-2)=means(j-2)+branches(j,N)
+            ENDIF
+          ENDDO !j
 
-           ENDDO !i
-
-           !C.. Summary statistics from branches
-           DO j=3,5 !branching angle, rotation angle, L/D
-             IF(branches(j,N).LT.undefined)THEN
-               means(j-2)=means(j-2)+branches(j,N)
-             ENDIF
-           ENDDO !j
-
-        ENDDO !N
+       ENDDO !N
        !C------------------------------------------------------------
        !C.Calculate mean branching statistics from values in branches
 
-        DO N=1,n_branch
-!       DO N=1,GENM
+       DO N=1,n_branch
+!      DO N=1,GENM
           DO j=3,5
             ntotaln(j-2)=ntotaln(j-2)+ntally(1,j,N)
          ENDDO !j
-        ENDDO !N
+       ENDDO !N
 
-        DO N=1,n_branch
-!       DO N=1,GENM
+       DO N=1,n_branch
+!      DO N=1,GENM
           DO i=1,NUM_SCHEMES
             DO j=1,5
               IF(ntally(i,j,N).GT.0)THEN
@@ -1999,89 +2011,90 @@ contains
               ENDIF
             ENDDO !j
           ENDDO !i
-        ENDDO !N
+       ENDDO !N
 
-        DO N=1,5
-          IF(nbins(N).NE.0)THEN
-            bins(N)=bins(N)/DBLE(nbins(N))*180.d0/PI
-          ENDIF
-        ENDDO !N
+       DO N=1,5
+         IF(nbins(N).NE.0)THEN
+           bins(N)=bins(N)/DBLE(nbins(N))*180.d0/PI
+         ENDIF
+       ENDDO !N
 
-         !CC. Summary statistics from branches
-         DO j=3,5 !branching angle, rotation angle, L/D
+       !CC. Summary statistics from branches
+       DO j=3,5 !branching angle, rotation angle, L/D
            IF(ntotaln(j-2).NE.0)THEN
              means(j-2)=means(j-2)/DBLE(ntotaln(j-2))
            ELSE
              means(j-2)=0.d0
            ENDIF
-         ENDDO !j
+       ENDDO !j
 
-         i=2 !Horsfield orders
-         j=6 !Nw/Nw-1
-!        DO N=1,GENM-1
-         DO N=1,n_branch-1
-           IF(ntally(i,1,N).GT.0.AND.ntally(i,1,N+1).GT.0)THEN
-             sum_mean(i,j,N)=DBLE(ntally(i,1,N))/DBLE(ntally(i,1,N+1))
-           ELSE
-             sum_mean(i,j,N)=0.d0
-           ENDIF
-         ENDDO !N
+       !----------------------------------------------------------
+       i=2 !Horsfield orders
+       j=6 !Nw/Nw-1
+!      DO N=1,GENM-1
+       DO N=1,n_branch-1
+         IF(ntally(i,1,N).GT.0.AND.ntally(i,1,N+1).GT.0)THEN
+           sum_mean(i,j,N)=DBLE(ntally(i,1,N))/DBLE(ntally(i,1,N+1))
+         ELSE
+           sum_mean(i,j,N)=0.d0
+         ENDIF
+       ENDDO !N
 
-         !CC. Summary statistics from CE
-         DO noelem=1,elems(0)
-           ne=elems(noelem)
-           DO j=11,21
-             IF(stats(j,ne).LT.undefined)THEN
-               means(j-7)=means(j-7)+stats(j,ne)
-               ntotaln(j-7)=ntotaln(j-7)+1
-             ENDIF
-           ENDDO !j
-         ENDDO !noelem
+       !CC. Summary statistics from CE
+       DO noelem=1,elems(0)
+          ne=elems(noelem)
+          DO j=11,21
+            IF(stats(j,ne).LT.undefined)THEN
+              means(j-7)=means(j-7)+stats(j,ne)
+              ntotaln(j-7)=ntotaln(j-7)+1
+            ENDIF
+          ENDDO !j
+       ENDDO !noelem
 
-         DO j=11,21
-           IF(ntotaln(j-7).GT.0)THEN
-             means(j-7)=means(j-7)/DBLE(ntotaln(j-7))
-           ENDIF
-         ENDDO !j
-         !C... End of mean calculation
-         !---------------------------------------
+       DO j=11,21
+          IF(ntotaln(j-7).GT.0)THEN
+            means(j-7)=means(j-7)/DBLE(ntotaln(j-7))
+          ENDIF
+       ENDDO !j
+       !C... End of mean calculation
+       !---------------------------------------
 
-         !!--------------------------------------------------
-         !C... Calculate the standard deviations
-         !C... Sum of (value-mean)^2
-         DO N=1,n_branch
-            DO i=1,NUM_SCHEMES !for generations, Horsfield orders, Strahler orders
-              nindex(i)=nbranches(i,N)
-              DO j=1,5 !length, diameter, branching angle, rotation angle, L/D
-                IF(branches(j,N).LT.undefined)THEN
-                  std_dev(i,j,nindex(i))=std_dev(i,j,nindex(i)) &
-                    +(branches(j,N)-sum_mean(i,j,nindex(i)))**2
-                ENDIF
-              ENDDO !j
-            ENDDO !i
-            DO j=3,5 !branching angle, rotation angle, L/D
+       !!--------------------------------------------------
+       !C... Calculate the standard deviations
+       !C... Sum of (value-mean)^2
+       DO N=1,n_branch
+          DO i=1,NUM_SCHEMES !for generations, Horsfield orders, Strahler orders
+            nindex(i)=nbranches(i,N)
+            DO j=1,5 !length, diameter, branching angle, rotation angle, L/D
               IF(branches(j,N).LT.undefined)THEN
-                sdt(j-2)=sdt(j-2) + &
-                   (branches(j,N)-means(j-2))**2
+                std_dev(i,j,nindex(i))=std_dev(i,j,nindex(i)) &
+                  +(branches(j,N)-sum_mean(i,j,nindex(i)))**2
               ENDIF
             ENDDO !j
-         ENDDO !N
+          ENDDO !i
+          DO j=3,5 !branching angle, rotation angle, L/D
+            IF(branches(j,N).LT.undefined)THEN
+              sdt(j-2)=sdt(j-2) + &
+                 (branches(j,N)-means(j-2))**2
+            ENDIF
+          ENDDO !j
+       ENDDO !N
 
-         do noelem = 1,num_elems
+       DO noelem = 1,num_elems
             ne=elems(noelem)
             DO j=11,21
               IF(stats(j,ne).LT.undefined)THEN
                 sdt(j-7)=sdt(j-7)+(stats(j,ne)-means(j-7))**2
               ENDIF
             ENDDO !j
-         ENDDO !noelem
-         !!---------------------------------------------------
+       ENDDO !noelem
+       !!---------------------------------------------------
 
 
-        !!-----------------------------------------------------
-        !CC. SD = sqrt(1/(n-1)*sum)
-!       DO N=1,GENM
-        DO N=1,n_branch
+       !!-----------------------------------------------------
+       !CC. SD = sqrt(1/(n-1)*sum)
+!      DO N=1,GENM
+       DO N=1,n_branch
            DO i=1,NUM_SCHEMES !for generations, Horsfield orders, Strahler orders
              DO j=1,5 !length, diameter, branching angle, rotation angle, L/D
                IF(ntally(i,j,N).GT.1)THEN
@@ -2091,16 +2104,15 @@ contains
                ENDIF
              ENDDO !j
            ENDDO !i
-        ENDDO !N
+       ENDDO !N
 
-        DO j=1,13
+       DO j=1,13
           IF(ntotaln(j).GT.1)THEN
             sdt(j)=DSQRT(sdt(j)/DBLE(ntotaln(j)-1))
           ENDIF
-        ENDDO !j
-        !CCC...... End of standard deviation calculation
-        !----------------------------------------------------
-
+       ENDDO !j
+       !CCC...... End of standard deviation calculation
+       !----------------------------------------------------
 
 
        opfile = trim(filename)//'.opmesh'
