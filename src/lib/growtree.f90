@@ -1708,10 +1708,8 @@ contains
        num_llp = 0
        ntotal = 0 ! added by bsha - seems like it's a counter so initialised from zero
 
-       write(*,*) 'HBK number of elems=',num_elems
        do ne = 1,num_elems
          ne0 = elem_cnct(-1,1,ne)
-         write(*,*) 'HBK parent=',ne,ne0
          add = .false.
          if(ne0.eq.0)then !stem of tree
             add = .true.
@@ -1722,8 +1720,6 @@ contains
          if(add)then
             n_branch = n_branch + 1
             n_order = elem_ordrs(2,ne)
-            write(*,*) 'HBK elem ordr=',elem_ordrs(2,ne)
-            write(*,*) 'HBK diam=',elem_field(ne_radius,ne)
             nmax_order = max(n_order,nmax_order)
             num_in_order(n_order) = num_in_order(n_order) + 1
             ! Add length of all segments along branch, calculate mean diameter
@@ -1731,14 +1727,11 @@ contains
             mean_diameter = elem_field(ne_radius,ne) * 2.0_dp
             total_length = elem_field(ne_length,ne)
             ne_next=ne
-            write(*,*) 'HBK daughters=',elem_cnct(1,0,ne),elem_cnct(1,1,ne)
             do while(elem_cnct(1,0,ne_next).eq.1.and.elem_symmetry(ne_next).eq.1)
               ne_next = elem_cnct(1,1,ne_next) !next segment
               total_length = total_length + elem_field(ne_length,ne_next) !sum lengths
               mean_diameter = mean_diameter  &
                        + elem_field(ne_radius,ne_next) * 2.0
-              write(*,*) 'HBKlength=',elem_field(ne_length,ne_next) 
-              write(*,*) 'HBKradius=',elem_field(ne_radius,ne_next) 
               n_segments = n_segments + 1 !count number of segments in branch
 
               diameters(ne) = elem_field(ne_radius,ne_next)*2.0
@@ -1770,18 +1763,13 @@ contains
             np1=elem_cnct(1,1,ne) !start node
             np2=elem_cnct(1,2,ne) !end node
             IF(elem_cnct(1,0,ne).NE.0) then
-             write(*,*) 'HBK branch=',np0,np1,np2
-             write(*,*) 'HBK node xyz=', node_xyz(1,np1), node_xyz(1,np2)
              DO nj=1,3
               xp1(nj)=node_xyz(nj,np0)
               xp2(nj)=node_xyz(nj,np1)
               xp3(nj)=node_xyz(nj,np2)
              ENDDO !nj
-             write(*,*) 'HBKcalling mesh angle'
              call mesh_angle(angle,xp1,xp2,xp3)
-             write(*,*) 'HBK done mesh angle'
              stats(2,ne)=angle !temporary storage of angle
-             !HBKbranches(3,N)=angle*180.d0/PI !store the branching angle to parent
              branches(3,ne)=angle*180.d0/PI !store the branching angle to parent
 
              ntotal=ntotal+1
@@ -1854,14 +1842,6 @@ contains
 
           endif
        enddo !ne
-
-  !   DO ne=1,num_elems
-  !      ne0=elem_cnct(-1,1,ne) !parent
-  !      np1=elem_nodes(1,ne)
-  !      np2=elem_nodes(2,ne)
-  !      if(elem_cnct(1,0,ne).eq.0)then !terminal
-  !       elems(ne) = ne_global
-
 
        !=======================
        !=======================
