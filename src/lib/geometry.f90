@@ -10,6 +10,7 @@ module geometry
   !This module handles all geometry read/write/generation.
   use arrays
   use diagnostics
+  use growtree
   use indices
   use mesh_utilities
   use other_consts ! currently has pi
@@ -455,6 +456,9 @@ contains
 
     sub_name = 'define_1d_elements'
     call enter_exit(sub_name,1)
+
+    write(*,*) 'WARNING: HACK IN DEFINE_1D_ELEM TO BE REMOVED'
+    call growing_indices
 
     if(index(ELEMFILE, ".ipelem")> 0) then !full filename is given
        readfile = ELEMFILE
@@ -2356,7 +2360,7 @@ contains
 
     sub_name = 'define_rad_from_file'
     call enter_exit(sub_name,1)
-
+    
     versions = .TRUE.
     if(present(radius_type_in))then
        radius_type = radius_type_in

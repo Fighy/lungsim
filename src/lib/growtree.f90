@@ -1613,775 +1613,289 @@ contains
   !     order, Strahler order, diameter-defined Strahler order
   !     respectively) for the current element.
 
-      use arrays,only: dp,data_xyz,data_weight,num_data,elem_ordrs,elem_units_below,&
-           node_xyz,num_units
-      use arrays,only: elem_cnct,elem_field,elem_symmetry,num_elems
-      use indices,only: ne_length,ne_radius
-      use diagnostics,only: enter_exit
-      use other_consts,only: PI
+      integer :: ord_type
+      character(len=*),intent(in) :: filename
 
-!bsha      implicit none
+      ! Local Variables
+      integer :: i,ne,ne0,ne_next,ne_sibling,ne0_0,ngen,nHord,nmax_order,nSord, &
+           num_in_order(40),n_branch,n_major,n_minor,n_order,n_segments
+      real(dp),allocatable :: stats(:,:)
+      real(dp) :: angle,angle2,means(13),mean_diameter,norm_1(3),norm_2(3), &
+           ratio,ratio_L_D(40),r_squared,slope,sum_brnch_angle(40),sum_crosssec(40), &
+           sum_diameter(40),sum_length(40),sum_rotn_angle(40),sum_volume(40), &
+           total_length,vect_1(3),vect_2(3), &
+           x_list(50),y_list(50)
+      logical :: add,found,major,minor
 
-       ! Parameters
-       character(len=*),intent(in) :: filename
+      character(len=60) :: sub_name = 'list_mesh_statistics'
+       
+      call enter_exit(sub_name,1)
 
-       ! Local Variables
-
-       real(dp) :: translate(3)
-       real(dp),allocatable :: data_temp(:,:),vertex_xyz(:,:)
-       real(dp) :: boxrange(3),cofm_surfaces(3),offset=-2.0_dp,point_xyz(3)
-       integer :: np0,np1,np2,nd1,nd2,nd11,nd22,nd12,nd21
-
-       integer :: index(4),ntotaln(20),ntotal
-       integer, allocatable :: nbranches(:,:)
-       real(dp),allocatable :: stats(:,:), branches(:,:), std_dev(:,:,:)
-       real(dp),allocatable :: sum_mean(:,:,:)
-       real(dp),allocatable :: ntally(:,:,:)
-       integer,allocatable ::  n_terminal(:), NORD(:,:)
-
-       real(dp) :: xp1(3), xp2(3), xp3(3), sum_term
-       integer :: i,j,k,nj,nline,nn,num_data_estimate,num_vertices
-       integer :: ne, ne_child
-       logical :: internal
-       character(len=1) :: char1
-       character(len=100) :: writefile
-
-       integer :: ne_flow, N, num_ddp, num_llp
-       integer :: ne0,ne_next,nmax_order,n_order,n_segments,num_in_order(40),NMAX_GEN(4) !NMAX_GEN added by bsha
-       integer :: average_term_gen,n_branch,ne1,ne2,ne_major,ne_minor,noelem,NPNE
-       integer :: nbins(5), bins(5), nindex(4)
-       real(dp) :: flow_proportion,mean_diameter,mean_sum_deadspace,mean_sum_pathlength,&
-           ratio_L_D(40),sum_crosssec(40),sum_deadspace,&
-           sum_diameter(40),sum_length(40),sum_pathlength,sum_volume(40),total_length,&
-           max_bin,min_bin
-       real(dp) :: means(20),sdt(20),ratios(4,3),r_squared(4,3)
-       real(dp) :: angle, slope
-
-       real(dp),allocatable :: sizes_from_entry(:,:),diameters(:),lengths(:)
-       real(dp),allocatable :: YREGRESS(:,:), X(:) ! added by bsha
-       real(dp),parameter :: max_path=310.0_dp,min_path=130.0_dp
-       real(dp),parameter :: max_dead=16.0_dp,min_dead=4.0_dp
-       real(dp),parameter :: undefined = 10000_dp
-
-       integer :: nbin,count_bins(2,100)
-       integer,parameter :: num_bins = 20
-       integer,parameter :: NUM_SCHEMES = 3  !bsha Generation, Horsefield, Strahler
-       logical :: add
-       logical,parameter :: DIAM_STRAHLER = FALSE
-       character(len=200) :: opfile
-
-       character(len=60) :: sub_name = 'list_mesh_statistics'
-       call enter_exit(sub_name,1)
-
-       if(.not.allocated(sizes_from_entry)) allocate(sizes_from_entry(2,num_elems))
-       if(.not.allocated(stats)) allocate(stats(21,num_elems))
-       if(.not.allocated(branches)) allocate(branches(10,num_elems))
-
-       if(.not.allocated(sum_mean)) allocate(sum_mean(4,6,num_elems))
-       if(.not.allocated(std_dev)) allocate(std_dev(4,6,num_elems))
-
-  ! QUESTION FOR MHT - are these still needed ?
-  ! MHT, Do we need still have nbranches ?
-  ! QUESTION: WHat is NMAX_GEN 
-
-       if(.not.allocated(n_terminal)) allocate(n_terminal(num_elems))
-       if(.not.allocated(nbranches)) allocate(nbranches(5,num_elems))
-
-       if(.not.allocated(diameters)) allocate(diameters(num_elems))
-       if(.not.allocated(lengths)) allocate(lengths(num_elems))
-
-       if(.not.allocated(YREGRESS)) allocate(YREGRESS(num_elems,3))
-       if(.not.allocated(ntally)) allocate(ntally(4,6,num_elems))
-
-       sizes_from_entry = 0.0_dp
-
-       num_in_order(:) = 0
-       nmax_order = 0
-       sum_crosssec = 0.0_dp
-       sum_diameter = 0.0_dp
-       sum_length = 0.0_dp
-       sum_volume = 0.0_dp
-       ratio_L_D = 0.0_dp
-
-       n_branch = 0
-       num_ddp = 0
-       num_llp = 0
-       ntotal = 0 ! added by bsha - seems like it's a counter so initialised from zero
-
-       do ne = 1,num_elems
+      ord_type = 2
+      
+      allocate(stats(11,num_elems))
+      
+      means = 0.0_dp
+      num_in_order(:) = 0
+      nmax_order = 0
+      sum_crosssec = 0.0_dp
+      sum_diameter = 0.0_dp
+      sum_length = 0.0_dp
+      sum_volume = 0.0_dp
+      sum_brnch_angle = 0.0_dp
+      sum_rotn_angle = 0.0_dp
+      ratio_L_D = 0.0_dp
+      
+      n_branch = 0  ! will count the total number of branches (<= number of elements)
+      n_major = 0
+      n_minor = 0
+      
+      do ne = 1,num_elems
          ne0 = elem_cnct(-1,1,ne)
          add = .false.
+         ! count the element only if it is at the start of a branch
          if(ne0.eq.0)then !stem of tree
             add = .true.
          else if(ne0.ne.0.and.elem_ordrs(2,ne0).ne.elem_ordrs(2,ne))then  !only count as extra branch if at start
             add = .true.
          endif
-
+         
          if(add)then
-            n_branch = n_branch + 1
-            n_order = elem_ordrs(2,ne)
-            nmax_order = max(n_order,nmax_order)
-            num_in_order(n_order) = num_in_order(n_order) + 1
-            ! Add length of all segments along branch, calculate mean diameter
+            n_branch = n_branch + 1    ! increment the number of branches
+            n_order = elem_ordrs(ord_type,ne) ! the 1. generation, 2. Horsfield order, or 3. Strahler order
+            nmax_order = max(n_order,nmax_order)  ! to find the maximum order
+            num_in_order(n_order) = num_in_order(n_order) + 1  ! count branches in each order
+            
+            ! determine whether this is a major or minor branch
+            ! where major branch == largest radius, or smallest angle if radii the same
+            if(elem_cnct(1,1,ne0).eq.ne)then ! get the element number of the 'sibling' branch
+               ne_sibling = elem_cnct(1,2,ne0)
+            else
+               ne_sibling = elem_cnct(1,1,ne0)
+            endif
+            major = .false.
+            minor = .false.
+            if(abs(elem_field(ne_radius,ne)-elem_field(ne_radius,ne_sibling)).lt.1.0e-6)then
+               ! when radii are the same, use branch angle to classify as major or minor
+               vect_1(:) = elem_direction(:,ne)  ! direction of branch
+               vect_2(:) = elem_direction(:,ne0) ! direction of parent branch
+               angle = angle_btwn_vectors(vect_1,vect_2)
+               vect_1(:) = elem_direction(:,ne_sibling)  ! direction of branch
+               angle2 = angle_btwn_vectors(vect_1,vect_2)
+               if(angle.gt.angle2)then
+                  minor = .true.
+               elseif(angle.lt.angle2)then
+                  major = .true.
+               endif
+            else
+               ! classify based on the radii
+               if(elem_field(ne_radius,ne).gt.elem_field(ne_radius,ne_sibling))then
+                  major = .true.
+               else
+                  minor = .true.
+               endif
+            endif
+            
+            
+            ! Add length of all elements along branch, calculate mean diameter
             n_segments = 1
             mean_diameter = elem_field(ne_radius,ne) * 2.0_dp
             total_length = elem_field(ne_length,ne)
-            ne_next=ne
+            ne_next = ne
             do while(elem_cnct(1,0,ne_next).eq.1.and.elem_symmetry(ne_next).eq.1)
               ne_next = elem_cnct(1,1,ne_next) !next segment
               total_length = total_length + elem_field(ne_length,ne_next) !sum lengths
-              mean_diameter = mean_diameter  &
-                       + elem_field(ne_radius,ne_next) * 2.0
+              mean_diameter = mean_diameter + elem_field(ne_radius,ne_next) * 2.0_dp
               n_segments = n_segments + 1 !count number of segments in branch
-
-              diameters(ne) = elem_field(ne_radius,ne_next)*2.0
-              lengths(ne) =   elem_field(ne_length,ne_next)
             enddo
             mean_diameter = mean_diameter/dble(n_segments)
-
-            ! mean branch diameter
+            ! mean branch diameter for the order
             sum_diameter(n_order) = sum_diameter(n_order) + mean_diameter
-
-            ! total branch length
+            ! total branch length for the order
             sum_length(n_order) = sum_length(n_order) + total_length
-
-            ! total branch volume
+            ! total branch volume for the order
             sum_volume(n_order) = sum_volume(n_order) +  &
-                        total_length*PI*(mean_diameter**2)/4.0
-
-            ! total branch cross-sectional area
+                        total_length*pi*(mean_diameter**2)/4.0_dp
+            ! total branch cross-sectional area for the order
             sum_crosssec(n_order) = sum_crosssec(n_order) +  &
-                        PI*(mean_diameter**2)/4.0_dp
-
-            ! branch L:D ratio
+                        pi*(mean_diameter**2)/4.0_dp
+            ! branch L:D ratio for the order
             ratio_L_D(n_order) = ratio_L_D(n_order) + total_length/mean_diameter
-
-  !! HARI MIGRATED
-  !         IF(INDEX(1).GT.1)THEN
-  !HBK       nb=NBJ(1,ne)
-            np0=elem_cnct(1,0,ne) !start of parent
-            np1=elem_cnct(1,1,ne) !start node
-            np2=elem_cnct(1,2,ne) !end node
-            IF(elem_cnct(1,0,ne).NE.0) then
-             DO nj=1,3
-              xp1(nj)=node_xyz(nj,np0)
-              xp2(nj)=node_xyz(nj,np1)
-              xp3(nj)=node_xyz(nj,np2)
-             ENDDO !nj
-             call mesh_angle(angle,xp1,xp2,xp3)
-             stats(2,ne)=angle !temporary storage of angle
-             branches(3,ne)=angle*180.d0/PI !store the branching angle to parent
-
-             ntotal=ntotal+1
-             IF(diameters(ne0).GT.0.d0.AND.diameters(ne).GT.0.d0)THEN
-              IF(diameters(ne)/diameters(ne0).LE.1.d0)THEN
-                num_ddp = num_ddp + 1
-              ENDIF
-             ENDIF
-            ENDIF
-
-            IF(diameters(ne0).GE.4.d0) THEN
-              nbins(1)=nbins(1)+1
-              bins(1)=bins(1)+angle
-            ELSE IF(diameters(ne0).GE.2.d0) THEN
-              nbins(2)=nbins(2)+1
-              bins(2)=bins(2)+angle
-            ELSE IF(diameters(ne0).GE.1.d0) THEN
-              nbins(3)=nbins(3)+1
-              bins(3)=bins(3)+angle
-            ELSE IF(diameters(ne0).GE.0.7d0) THEN
-              nbins(4)=nbins(4)+1
-              bins(4)=bins(4)+angle
-            ENDIF
-  !         ELSE
-  !           branches(3,N)=undefined
-  !         ENDIF
-
-  !        ne_next=ne
-  !        do while(elem_cnct(1,0,ne_next).eq.1.and.elem_symmetry(ne_next).eq.1)
-
-            stats(5,ne)=lengths(ne)
-            ne_next=ne
-            if(elem_cnct(1,0,ne_next).EQ.1) then
-              ne_next=elem_cnct(1,1,ne_next)
-              stats(5,ne)=stats(5,ne)+lengths(ne_next)
+            ! branch L:D for summary statistics
+            stats(5,n_branch) = total_length/mean_diameter
+            means(5) = means(5) + total_length/mean_diameter
+            ! branch angle to the parent branch, and rotation angle of branching plane
+            if(ne0.ne.0)then
+               vect_1(:) = elem_direction(:,ne)  ! direction of branch
+               vect_2(:) = elem_direction(:,ne0) ! direction of parent branch
+               angle = 180.0_dp/pi*angle_btwn_vectors(vect_1,vect_2)
+               ! branch angle for the order
+               sum_brnch_angle(n_order) = sum_brnch_angle(n_order) + angle
+               ! branch angle for summary statistics
+               stats(1,n_branch) = angle
+               if(major)then
+                  n_major = n_major + 1
+                  stats(4,n_major) = angle ! major angle
+                  stats(7,n_major) = total_length/mean_diameter ! major L:D
+                  stats(8,n_major) = elem_field(ne_radius,ne_sibling)/elem_field(ne_radius,ne) ! Dmin/Dmaj
+                  stats(11,n_major) = elem_field(ne_radius,ne)/elem_field(ne_radius,ne0) ! Dmaj/Dpnt
+               elseif(minor)then
+                  n_minor = n_minor + 1
+                  stats(3,n_minor) = angle ! minor angle
+                  stats(6,n_minor) = total_length/mean_diameter ! minor L:D
+                  stats(8,n_minor) = elem_field(ne_radius,ne)/elem_field(ne_radius,ne_sibling) ! Dmin/Dmaj
+                  stats(10,n_minor) = elem_field(ne_radius,ne)/elem_field(ne_radius,ne0) ! Dmin/Dpnt
+               endif
+               stats(9,n_branch) = elem_field(ne_radius,ne)/elem_field(ne_radius,ne0) ! D/Dpnt
+               
+               if(elem_cnct(1,0,ne0).gt.1.and.elem_ordrs(1,ne).gt.2)then
+                  vect_1(:) = elem_direction(:,elem_cnct(1,1,ne0)) ! 1st child of parent
+                  vect_2(:) = elem_direction(:,elem_cnct(1,2,ne0)) ! 2nd child of parent
+                  norm_1 = unit_norm_to_plane_two_vectors(vect_1,vect_2)
+                  ne0_0 = elem_cnct(-1,1,ne0) ! immediate parent element
+                  found = .false.
+                  do while(.not.found)
+                     if(elem_ordrs(1,ne0_0).ne.elem_ordrs(1,ne0))then ! at bifurcation
+                        vect_1(:) = elem_direction(:,elem_cnct(1,1,ne0_0)) ! 1st child of parent
+                        vect_2(:) = elem_direction(:,elem_cnct(1,2,ne0_0)) ! 2nd child of parent
+                        norm_2 = unit_norm_to_plane_two_vectors(vect_1,vect_2)
+                        found = .true.
+                     else
+                        ne0_0 = elem_cnct(-1,1,ne0_0) ! get the parent element
+                     endif
+                  enddo
+                  sum_rotn_angle(n_order) = sum_rotn_angle(n_order) + &
+                       180.0_dp/pi*angle_btwn_vectors(norm_1,norm_2)
+                  stats(2,n_branch) = 180.0_dp/pi*angle_btwn_vectors(norm_1,norm_2) ! rotation angle
+               endif
             endif
-
-            if(elem_cnct(1,0,ne).EQ.0) then
-              n_terminal(1)=n_terminal(1)+1
-            endif
-
-            !CC... Geometric properties of mesh
-            branches(4,ne)=undefined !initialise to no rotation angle
-            IF(elem_cnct(-1,0,ne).GT.0.AND.elem_cnct(1,0,ne).GT.1) then
-              ne0=elem_cnct(-1,1,ne) !parent
-              IF(elem_cnct(1,0,ne0).GT.1) then
-                np0=elem_cnct(1,0,ne0) !start of parent  bsha
-                np1=elem_nodes(1,ne0)  !bsha
-                np2=elem_nodes(2,np0)  !bsha
-                nd1=elem_cnct(1,1,ne0) ! daughter1  bsha
-                nd11=elem_nodes(1,nd1) ! bsha  node1 daughter1
-                nd12=elem_nodes(2,nd1) ! bsha  node2 daughter1
-                nd2=elem_cnct(1,2,ne0) ! daughter2  bsha
-                nd21=elem_nodes(1,nd2) ! bsha  node1 daughter2
-                nd22=elem_nodes(2,nd2) ! bsha  node2 daughter2
-                !DO nj=1,3
-                ! xp1(nj)=node_xyz(nj,np0)
-                ! xp2(nj)=node_xyz(nj,np1)
-                ! xp3(nj)=node_xyz(nj,np2)
-                ! xp4(nj)=node_xyz(nj,)
-                ! xp5(nj)=node_xyz()
-                !ENDDO !nj
-
-!bsha  CALL mesh_plane_angle(NBJ,ne,NPNE,angle,XP)
-                write(*,*) 'calling rotation angle'
-                angle = rotation_angle(np1, np2, nd12, nd21, nd22)
-                branches(4,ne)=angle*180.d0/PI !rotation angle
-              ENDIF
-            ENDIF
-
-          endif
-       enddo !ne
-
-       !=======================
-       !=======================
-       do noelem = 1,num_elems
-  !       ne=elems(noelem)
-          ne0=elem_cnct(-1,1,noelem) !parent
-
-          DO j=11,21 !initialise values for the summary statistics
-            stats(j,ne)=undefined
-          ENDDO !j
-          ne0=elem_cnct(-1,1,ne)
-          IF(ne0.NE.0)THEN
-            IF(elem_ordrs(1,ne0).NE.elem_ordrs(1,ne))THEN
-              IF(stats(5,ne)/stats(5,ne0).LE.1.d0)THEN
-                num_llp=num_llp+1
-              ENDIF
-              stats(19,ne)=stats(5,ne)/stats(5,ne0) !L/Lparent
-              IF(diameters(ne0).GT.0.d0.AND.diameters(ne).GT.0.d0)THEN
-                stats(16,ne)=diameters(ne)/diameters(ne0) !D/Dparent
-              ENDIF
-            ENDIF
-          ENDIF
-
-          IF(elem_cnct(1,0,ne).GE.2) THEN !'bifurcations only
-              ne1=elem_cnct(1,1,ne) !first child
-              ne2=elem_cnct(1,2,ne) !second child
-
-              !XX.. Summary statistics
-              IF(stats(6,ne1).LT.undefined &
-                         .AND.stats(6, ne2).LT.undefined)THEN
-                IF(stats(6,ne1).GE.stats(6,ne2))THEN !diameter classification
-                  ne_major=ne1
-                  ne_minor=ne2
-                ELSE
-                  ne_major=ne2
-                  ne_minor=ne1
-                ENDIF
-                IF(stats(2,ne_minor).LT.undefined.AND.stats(2,ne_major).LT.undefined)THEN
-                  stats(11,ne)=stats(2,ne_minor)*180.d0/PI
-                  stats(12,ne)=stats(2,ne_major)*180.d0/PI
-                ENDIF
-
-                IF(diameters(ne_minor).GT.0.d0.AND. &
-                  diameters(ne_major).GT.0.d0)THEN
-                  stats(13,ne)=stats(5,ne_minor)/diameters(ne_minor) !L/D minor
-                  stats(14,ne)=stats(5,ne_major)/diameters(ne_major) !L/D major
-                  stats(15,ne)=diameters(ne_minor)/diameters(ne_major) !minor D / major D
-                  stats(17,ne)=diameters(ne_minor)/diameters(ne) !minor D / D parent
-                  stats(18,ne)=diameters(ne_major)/diameters(ne) !major D / D parent
-                ENDIF
-                IF(stats(5,ne1).LE.stats(5,ne2))THEN !length classification
-                  ne_major=ne1
-                  ne_minor=ne2
-                ELSE
-                  ne_major=ne2
-                  ne_minor=ne1
-                ENDIF !length criteria
-                stats(20,ne)=stats(5,ne_major)/stats(5,ne_minor)
-              ENDIF
-
-  !!          IF(DOP)THEN
-  !!            WRITE(OP_STRING,'('' ne'',I5,''  angle'',F6.2,'
-  !!   &          //'''  L/Dmin'',F5.2,''  L/Dmaj'',F5.2)')
-  !!   &          ne,stats(2,ne)*180.d0/PI,stats(13,ne),stats(14,ne)
-  !!            CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-  !!          ENDIF !DOP
-
-          ENDIF !elem_cnct
-       ENDDO !noelem
-       !=======================
-       !=======================
-
-       !C -------------------------------------------------------------
-       !C .. Calculate mean branching statistics from values in branches
-       DO N=1,n_branch
-
-          !i : for generations, Horsfield orders, Strahler orders
-          DO i=1,NUM_SCHEMES
-          nindex(i)=nbranches(i,N)
-
-          !.............................................
-          !C... length and diameter
-          DO j=1,2
-            sum_mean(i,j,nindex(i))=sum_mean(i,j,nindex(i))+ &
-              branches(j,N)
-            IF(i.EQ.3.AND.j.EQ.1)THEN
-              IF(nindex(i).NE.nbranches(5,N))THEN !not same as parent
-                ntally(i,j,nindex(i))=ntally(i,j,nindex(i))+1
-              ENDIF
-            ELSE
-              ntally(i,j,nindex(i))=ntally(i,j,nindex(i))+1
-            ENDIF
-          ENDDO !j
-          !C.. length and diameter
-          !.............................................
-
-          !...........................................
-          !CCC. branching angle and rotation angle(j=3,4)
-          DO j=3,4
-            IF(branches(j,N).LT.undefined)THEN
-              sum_mean(i,j,nindex(i))=sum_mean(i,j,nindex(i))+branches(j,N)
-              ntally(i,j,nindex(i))=ntally(i,j,nindex(i))+1
-            ENDIF
-          ENDDO !j
-          !CCC . branching angle and rotation angle
-          !...........................................
-
-
-          !..........................................
-          !. ratio of L:D (j=5)
-          j=5
-          IF(branches(j,N).LT.undefined)THEN
-            sum_mean(i,j,nindex(i))=sum_mean(i,j,nindex(i))+branches(j,N)
-            ntally(i,j,nindex(i))=ntally(i,j,nindex(i))+1
-          ENDIF
-          !..........................................
-
-       ENDDO !i
-
-          !C.. Summary statistics from branches
-          DO j=3,5 !branching angle, rotation angle, L/D
-            IF(branches(j,N).LT.undefined)THEN
-              means(j-2)=means(j-2)+branches(j,N)
-            ENDIF
-          ENDDO !j
-
-       ENDDO !N
-       !C------------------------------------------------------------
-       !C.Calculate mean branching statistics from values in branches
-
-       DO N=1,n_branch
-!      DO N=1,GENM
-          DO j=3,5
-            ntotaln(j-2)=ntotaln(j-2)+ntally(1,j,N)
-         ENDDO !j
-       ENDDO !N
-
-       DO N=1,n_branch
-!      DO N=1,GENM
-          DO i=1,NUM_SCHEMES
-            DO j=1,5
-              IF(ntally(i,j,N).GT.0)THEN
-                sum_mean(i,j,N)=sum_mean(i,j,N)/DBLE(ntally(i,j,N))
-                NMAX_GEN(i)=N
-               ELSE
-                sum_mean(i,j,N)=0.d0
-              ENDIF
-            ENDDO !j
-          ENDDO !i
-       ENDDO !N
-
-       DO N=1,5
-         IF(nbins(N).NE.0)THEN
-           bins(N)=bins(N)/DBLE(nbins(N))*180.d0/PI
-         ENDIF
-       ENDDO !N
-
-       !CC. Summary statistics from branches
-       DO j=3,5 !branching angle, rotation angle, L/D
-           IF(ntotaln(j-2).NE.0)THEN
-             means(j-2)=means(j-2)/DBLE(ntotaln(j-2))
-           ELSE
-             means(j-2)=0.d0
-           ENDIF
-       ENDDO !j
-
-       !----------------------------------------------------------
-       i=2 !Horsfield orders
-       j=6 !Nw/Nw-1
-!      DO N=1,GENM-1
-       DO N=1,n_branch-1
-         IF(ntally(i,1,N).GT.0.AND.ntally(i,1,N+1).GT.0)THEN
-           sum_mean(i,j,N)=DBLE(ntally(i,1,N))/DBLE(ntally(i,1,N+1))
-         ELSE
-           sum_mean(i,j,N)=0.d0
-         ENDIF
-       ENDDO !N
-
-       !CC. Summary statistics from CE
-       DO noelem=1,elems(0)
-  !       ne=elems(noelem)
-          ne=elem_cnct(-1,1,noelem) !parent
-          DO j=11,21
-            IF(stats(j,ne).LT.undefined)THEN
-              means(j-7)=means(j-7)+stats(j,ne)
-              ntotaln(j-7)=ntotaln(j-7)+1
-            ENDIF
-          ENDDO !j
-       ENDDO !noelem
-
-       DO j=11,21
-          IF(ntotaln(j-7).GT.0)THEN
-            means(j-7)=means(j-7)/DBLE(ntotaln(j-7))
-          ENDIF
-       ENDDO !j
-       !C... End of mean calculation
-       !---------------------------------------
-
-       !!--------------------------------------------------
-       !C... Calculate the standard deviations
-       !C... Sum of (value-mean)^2
-       DO N=1,n_branch
-          DO i=1,NUM_SCHEMES !for generations, Horsfield orders, Strahler orders
-            nindex(i)=nbranches(i,N)
-            DO j=1,5 !length, diameter, branching angle, rotation angle, L/D
-              IF(branches(j,N).LT.undefined)THEN
-                std_dev(i,j,nindex(i))=std_dev(i,j,nindex(i)) &
-                  +(branches(j,N)-sum_mean(i,j,nindex(i)))**2
-              ENDIF
-            ENDDO !j
-          ENDDO !i
-          DO j=3,5 !branching angle, rotation angle, L/D
-            IF(branches(j,N).LT.undefined)THEN
-              sdt(j-2)=sdt(j-2) + &
-                 (branches(j,N)-means(j-2))**2
-            ENDIF
-          ENDDO !j
-       ENDDO !N
-
-       DO noelem = 1,num_elems
-         ne=elems(noelem)
-         DO j=11,21
-           IF(stats(j,ne).LT.undefined)THEN
-             sdt(j-7)=sdt(j-7)+(stats(j,ne)-means(j-7))**2
-           ENDIF
-         ENDDO !j
-       ENDDO !noelem
-       !!---------------------------------------------------
-
-
-       !!-----------------------------------------------------
-       !CC. SD = sqrt(1/(n-1)*sum)
-!      DO N=1,GENM
-       DO N=1,n_branch
-           DO i=1,NUM_SCHEMES !for generations, Horsfield orders, Strahler orders
-             DO j=1,5 !length, diameter, branching angle, rotation angle, L/D
-               IF(ntally(i,j,N).GT.1)THEN
-                 std_dev(i,j,N)=DSQRT(std_dev(i,j,N)/DBLE(ntally(i,j,N)-1))
-               ELSE
-                 std_dev(i,j,N)=0.d0
-               ENDIF
-             ENDDO !j
-           ENDDO !i
-       ENDDO !N
-
-       DO j=1,13
-          IF(ntotaln(j).GT.1)THEN
-            sdt(j)=DSQRT(sdt(j)/DBLE(ntotaln(j)-1))
-          ENDIF
-       ENDDO !j
-       !CCC...... End of standard deviation calculation
-       !----------------------------------------------------
-
-
-       opfile = trim(filename)//'.opmesh'
-       open(10, file=opfile, status='replace')
-
-       write(*,'(/'' Horsfield   #branches     Length     Diameter    ratio L:D    Volume   CrossSecArea'')')
-       write(*,'(''   order                    (mm)        (mm)                     (mL)      (cm^2)'')')
-       write(10,'(/'' Horsfield   #branches     Length     Diameter    ratio L:D    Volume   CrossSecArea'')')
-       write(10,'(''   order                    (mm)        (mm)                     (mL)      (cm^2)'')')
-
-       do n_order = 1,nmax_order
-         write(*,'(i6,i12,f14.2,f12.2,f12.2,f12.2,f12.2)') &
-              n_order,&
-              num_in_order(n_order),&
-              sum_length(n_order)/dble(num_in_order(n_order)),&
-              sum_diameter(n_order)/dble(num_in_order(n_order)),&
-              ratio_L_D(n_order)/dble(num_in_order(n_order)), &
-              sum_volume(n_order)/1.0e+3_dp,&
-              sum_crosssec(n_order)/100.0_dp
-
-         write(10,'(i6,i12,f14.2,f12.2,f12.2,f12.2,f12.2)') &
-              n_order,&
-              num_in_order(n_order),&
-              sum_length(n_order)/dble(num_in_order(n_order)),&
-              sum_diameter(n_order)/dble(num_in_order(n_order)),&
-              ratio_L_D(n_order)/dble(num_in_order(n_order)), &
-              sum_volume(n_order)/1.0e+3_dp,&
-              sum_crosssec(n_order)/100.0_dp
-       enddo
-
-
-         sum_term = 0
-         average_term_gen = 0
-         !=======
-         i=1
-         !=======
-         DO N=1,NMAX_GEN(i)
-            WRITE(10,'(3(I10),5(F8.2,'' ('',F6.2,'')''))') &
-              N,ntally(i,1,N),n_terminal(N),&
-              sum_mean(i,1,N),std_dev(i,1,N), &
-              sum_mean(i,2,N),std_dev(i,2,N),&
-              sum_mean(i,3,N),std_dev(i,3,N),&
-              sum_mean(i,4,N),std_dev(i,4,N),&
-              sum_mean(i,5,N),std_dev(i,5,N)
-
-  !         CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-            average_term_gen=average_term_gen + n_terminal(N)*N
-            sum_term=sum_term + n_terminal(N)
-          ENDDO
-          IF(SUM_TERM.GT.0)THEN
-            average_term_gen=average_term_gen/DBLE(sum_term)
-          ELSE
-            average_term_gen=0.d0
-          ENDIF
-
-          WRITE(10,'(/''Horsfield   #branches  Length  Diameter  Branching  Rotation  ratio L:D   Nw/Nw-1'')')
-  !       CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-
-          WRITE(10,'('' order   (mm)   (mm)  angle(deg)   angle(deg)'')')
-  !       CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-
-          WRITE(10,'(115(''-''))')
-  !       CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-
-          !=======
-          i=2
-          !=======
-          DO N=1,NMAX_GEN(i)
-            WRITE(10,'(2(I10),5(F8.2,'' ('',F6.2,'')''),F8.2)') &
-              N,ntally(2,1,N), &
-              sum_mean(i,1,N),std_dev(i,1,N), &
-              sum_mean(i,2,N),std_dev(i,2,N), &
-              sum_mean(i,3,N),std_dev(i,3,N), &
-              sum_mean(i,4,N),std_dev(i,4,N), &
-              sum_mean(i,5,N),std_dev(i,5,N), &
-              sum_mean(i,6,N)
-          ENDDO
-
-          WRITE(10,*) 'Strahler  #branches   Length   Diameter  Branching   Rotation    ratio L:D'
-          WRITE(10,*) ' order               (mm)       (mm)     angle(deg)  angle(deg)'
-          WRITE(10,*) '---------------------------------------------------------------------'
-
-          !=======
-          i=3
-          !=======
-          DO N=1,NMAX_GEN(i)
-            WRITE(*,'(2(I10),5(F8.2,'' ('',F6.2,'')''))') &
-              N,ntally(3,1,N),&
-              sum_mean(i,1,N),std_dev(i,1,N),&
-              sum_mean(i,2,N),std_dev(i,2,N),&
-              sum_mean(i,3,N),std_dev(i,3,N),&
-              sum_mean(i,4,N),std_dev(i,4,N),&
-              sum_mean(i,5,N),std_dev(i,5,N)
-          ENDDO
-
-
-          !---------------------------------------------------
-          IF(DIAM_STRAHLER) THEN
-            WRITE(10,*)  &
-              'Diam-Def  Strahler  #branches   Length  Diameter  Branching   Rotation  ratio  L:D'
-            WRITE(10,*) 'order    (mm)    (mm)   angle(deg)   angle(deg)'
-
-            WRITE(10,'(115(''-''))')
-
-            i=4
-            DO N=1,NMAX_GEN(i)
-              WRITE(10,'(2(I10),5(F8.2,'' ('',F6.2,'')''))') &
-                N,ntally(i,1,N), &
-                sum_mean(i,1,N),std_dev(i,1,N), &
-                sum_mean(i,2,N),std_dev(i,2,N), &
-                sum_mean(i,3,N),std_dev(i,3,N), &
-                sum_mean(i,4,N),std_dev(i,4,N), &
-                sum_mean(i,5,N),std_dev(i,5,N)
-            ENDDO
-          ENDIF !DIAM_STRAHLER
-          !---------------------------------------------------
-
-          !-------------------------------------------------
-          DO i=2,NUM_SCHEMES !Horsfield and Strahler orders
-           DO N=1,NMAX_GEN(i)
-            !X(N)=N bsha
-            allocate(X(N)) !bsha
-            YREGRESS(N,1)=DLOG10(DBLE(ntally(i,1,N)))
-            YREGRESS(N,2)=DLOG10(sum_mean(i,1,N))
-            YREGRESS(N,3)=DLOG10(sum_mean(i,2,N))
-           ENDDO !N
-           DO j=1,3 !number of branches, length, diameter
-  !          CALL LINREGRESS(NMAX_GEN(i),r_squared(i,j),slope,X,YREGRESS(1,j))
-             CALL linear_regression(NMAX_GEN(i),r_squared(i,j),slope,X,YREGRESS(1,j))
-             ratios(i,j)=10.d0**DABS(slope)
-           ENDDO !j
-          ENDDO !i
-          !----------------------------------------------------
-
-         write(10,*) 'terminal generation  =', average_term_gen
-         write(10,*) 'branching angle  =', means(1),sdt(1)
-         write(10,*) 'rotation angle  =', means(2),sdt(2)
-         write(10,*) 'minor angle  =', means(4),sdt(4)
-         write(10,*) 'major angle  =', means(5),sdt(5)
-         write(10,*) 'L/D ratio  =', means(3),sdt(3)
-         write(10,*) 'L/D minor ratio  =', means(6),sdt(6)
-         write(10,*) 'L/D major ratio  =', means(7),sdt(7)
-         write(10,*) 'minorD/majorD=', means(8),sdt(8)
-         write(10,*) 'D/Dparent=', means(9),sdt(9)
-         write(10,*) '%D/Dparent<1 =', DBLE(num_ddp)/DBLE(ntotal)*100.d0
-         write(10,*) 'Dmin/Dparent =', means(10),sdt(10)
-         write(10,*) 'Dmax/Dparent =', means(11),sdt(11)
-         write(10,*) 'L/Lp =', means(12),sdt(12)
-         write(10,*) '%L/Lp<1 =', DBLE(num_llp)/DBLE(elems(0)-1)*100.d0
-         write(10,*) 'L1/L2 (L1 < L2) =', means(13),sdt(13)
-
-  !          ' branching angle      = '',F7.3,'' ('',F6.3,'')'','
-  !          ' rotation angle       = '',F7.3,'' ('',F6.3,'')'','
-  !          ' minor angle          = '',F7.3,'' ('',F6.3,'')'','
-  !          ' major angle          = '',F7.3,'' ('',F6.3,'')'','
-  !          ' L/D                  = '',F7.3,'' ('',F6.3,'')'','
-  !          ' L/D minor child      = '',F7.3,'' ('',F6.3,'')'','
-  !          ' L/D major child      = '',F7.3,'' ('',F6.3,'')'','
-  !          ' minor D/major D      = '',F7.3,'' ('',F6.3,'')'','
-  !          ' D/Dparent            = '',F7.3,'' ('',F6.3,'')'','
-  !          ' %D/Dparent  < 1      = '',F7.3,'
-  !          ' Dmin/Dparent         = '',F7.3,'' ('',F6.3,'')'','
-  !          ' Dmaj/Dparent         = '',F7.3,'' ('',F6.3,'')'','
-  !          ' L/Lp                 = '',F7.3,'' ('',F6.3,'')'','
-  !          ' %L/Lp < 1            = '',F7.3,'
-  !          ' L1/L2 (L1 < L2)      = '',F7.3,'' ('',F6.3,'')'')')
-  !          average_term_gen,means(1),sdt(1),&
-  !          means(2),sdt(2),&
-  !          means(4),sdt(4),&
-  !          means(5),sdt(5),&
-  !          means(3),sdt(3),means(6),sdt(6),&
-  !          means(7),sdt(7),means(8),sdt(8),means(9),sdt(9),&
-  !          DBLE(num_ddp)/DBLE(ntotal)*100.d0,means(10),sdt(10),&
-  !          means(11),sdt(11),&
-  !          means(12),sdt(12),&
-  !          DBLE(num_llp)/DBLE(elems(0)-1)*100.d0,&
-  !          means(13),sdt(13)
-
-  !       CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-
-          WRITE(10,*) ' Rb Horsfield    = ',ratios(2,1),r_squared(2,1)
-          WRITE(10,*) ' Rl Horsfield    = ',ratios(2,2),r_squared(2,2)
-          WRITE(10,*) ' Rd Horsfield    = ',ratios(2,3),r_squared(2,3)
-          WRITE(10,*) ' Rb Strahler    = ',ratios(3,1),r_squared(3,1)
-          WRITE(10,*) ' Rl Strahler    = ',ratios(3,2),r_squared(3,2)
-          WRITE(10,*) ' Rd Strahler    = ',ratios(3,3),r_squared(3,3)
-
-  !       WRITE(OP_STRING,'('' Rb Strahler    = '',F7.3,'
-  !    '    //''' Rsq ='',F6.3,'//
-  !    '    '/'' Rl Strahler          = '',F7.3,'' Rsq = '',F6.3,'//
-  !    '    '/'' Rd Strahler          = '',F7.3,'' Rsq = '',F6.3,'//
-  !    '    '/'' Rb Horsfield         = '',F7.3,'' Rsq = '',F6.3,'//
-  !    '    '/'' Rl Horsfield         = '',F7.3,'' Rsq = '',F6.3,'//
-  !    '    '/'' Rd Horsfield         = '',F7.3,'' Rsq = '',F6.3)')
-  !    '    ratios(3,1),r_squared(3,1),ratios(3,2),r_squared(3,2),
-  !         ratios(3,3),r_squared(3,3),&
-  !         ratios(2,1),r_squared(2,1),&
-  !         ratios(2,2),r_squared(2,2),&
-  !         ratios(2,3),r_squared(2,3)
-
-  ! CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-
-          IF(DIAM_STRAHLER) THEN
-           write(10,*) 'Rb diam-def Strahler=',ratios(4,1),'Rsq=',r_squared(4,1)
-           write(10,*) 'Rl diam-def Strahler=',ratios(4,2),'Rsq=',r_squared(4,2)
-           write(10,*) 'Rd diam-def Strahler=',ratios(4,3),'Rsq=',r_squared(4,3)
-  !         WRITE(OP_STRING,
-  !    &      '('' Rb diam-def Strahler  ='',F7.3,'' Rsq = '',F6.3,'//
-  !    &      '/'' Rl diam-def Strahler  ='',F7.3,'' Rsq = '',F6.3,'//
-  !    &      '/'' Rd diam-def Strahler  ='',F7.3,'' Rsq = '',F6.3)')
-  !    &      ratios(4,1),r_squared(4,1),&
-  !           ratios(4,2),r_squared(4,2),&
-  !           ratios(4,3),r_squared(4,3)
-  !         CALL WRITES(IOFI,OP_STRING,ERROR,*9999)
-          ENDIF
-
-          WRITE(10,*) 'mean angle Dp 4.0+   = ',bins(1)
-          WRITE(10,*) 'mean angle Dp 3.0+   = ',bins(2)
-          WRITE(10,*) 'mean angle Dp 2.0+   = ',bins(3)
-          WRITE(10,*) 'mean angle Dp 1.0+   = ',bins(4)
-          WRITE(10,*) 'mean angle Dp 0.7+   = ',bins(5)
-
-  !       WRITE(OP_STRING,'('' mean angle Dp 4.0+   = '',F7.3,'//
-  !    &    '/''  mean angle Dp 3.0+   = '',F7.3,'//
-  !    &    '/''  mean angle Dp 2.0+   = '',F7.3,'//
-  !    &    '/''  mean angle Dp 1.0+   = '',F7.3,'//
-  !    &    '/''  mean angle Dp 0.7+   = '',F7.3)')
-  !    '    (bins(j),j=1,5)
-
-
-       write(*,'('' Total anatomical dead space = '',f8.2, '' mL'')') &
-              sum(sum_volume)/1.0e+3_dp*3.0_dp/2.0_dp
-
-       mean_sum_pathlength = 0.0_dp
-       mean_sum_deadspace = 0.0_dp
-
-       count_bins = 0
-
-       do ne = 1,num_elems
-         if(elem_cnct(1,0,ne).eq.0)then !terminal
-            sum_pathlength = elem_field(ne_length,ne)
-  !!        sum_deadspace = elem_field(ne_vol,ne)
-  !!        flow_proportion = 1.0_dp
-            ne0 = elem_cnct(-1,1,ne)
-            ne_child = ne
-            do while (ne0.ne.0) !while not the stem
-               sum_pathlength = sum_pathlength + elem_field(ne_length,ne0)
-  !!           flow_proportion = flow_proportion * elem_field(ne_flow,ne_child)/ &
-  !!                elem_field(ne_flow,ne0)
-  !!           sum_deadspace = sum_deadspace + elem_field(ne_vol,ne0) * flow_proportion
-               ne_child = ne0
-               ne0 = elem_cnct(-1,1,ne0)
-            enddo !while not the stem
-
-            mean_sum_pathlength = mean_sum_pathlength + sum_pathlength
-            mean_sum_deadspace = mean_sum_deadspace + sum_deadspace
-            do nbin = 1,num_bins
-               min_bin = min_path+(nbin-1)*(max_path-min_path)/num_bins
-               max_bin = min_path+nbin*(max_path-min_path)/num_bins
-               if(sum_pathlength.gt.min_bin.and.sum_pathlength.le.max_bin) count_bins(1,nbin) = count_bins(1,nbin)+1
-               min_bin = min_dead+(nbin-1)*(max_dead-min_dead)/num_bins
-               max_bin = min_dead+nbin*(max_dead-min_dead)/num_bins
-               if(sum_deadspace.gt.min_bin.and.sum_deadspace.le.max_bin) count_bins(2,nbin) = count_bins(2,nbin)+1
-            enddo
-         endif !terminal
-       enddo !ne
-       mean_sum_pathlength = mean_sum_pathlength/elem_units_below(1)
-       mean_sum_deadspace = mean_sum_deadspace/elem_units_below(1)
-
-       write(*,'('' Mean pathlength to acinus = '',f8.2, '' mm; ['',f8.2,''-'',f8.2,'']'')') &
-           mean_sum_pathlength,min_path,max_path
-       write(*,'('' Mean deadspace to acinus  = '',f8.2, '' mL; ['',f8.2,''-'',f8.2,'']'')') &
-           mean_sum_deadspace/1.0+3_dp,min_dead/1.0+3_dp,max_dead/1.0+3_dp
-
-
-       write(*,'(''........................... '')')
-       write(*,'('' N_bin     N_PL_bin    N_Vd_bin'')')
-       do nbin = 1,num_bins
-         write(*,'(i4,i12,i12)') nbin,count_bins(1,nbin),count_bins(2,nbin)
-       enddo
-
-       close(10)
-       deallocate(sizes_from_entry)
-       deallocate(stats)
-       deallocate(branches)
-
+            
+         endif ! add a new branch
+      enddo ! for each element
+
+      do n_order = 1,nmax_order
+         sum_diameter(n_order) = sum_diameter(n_order)/dble(num_in_order(n_order))
+         sum_length(n_order) = sum_length(n_order)/dble(num_in_order(n_order))
+         ratio_L_D(n_order) = ratio_L_D(n_order)/dble(num_in_order(n_order))
+         sum_brnch_angle(n_order) = sum_brnch_angle(n_order)/dble(num_in_order(n_order))
+         sum_rotn_angle(n_order) = sum_rotn_angle(n_order)/dble(num_in_order(n_order))
+      enddo
+
+      means(1) = sum(stats(1,:))/dble(n_branch-1)  ! branch angle
+      means(2) = sum(stats(2,:))/dble(n_branch-3)  ! rotation angle
+      means(3) = sum(stats(3,:))/dble(n_minor)     ! minor angle
+      means(4) = sum(stats(4,:))/dble(n_major)     ! major angle
+      means(5) = sum(stats(5,:))/dble(n_branch)    ! L/D
+      means(6) = sum(stats(6,:))/dble(n_minor)     ! L/D (minor)
+      means(7) = sum(stats(7,:))/dble(n_major)     ! L/D (major)
+      means(8) = sum(stats(8,:))/dble(n_branch-1)  ! D(min)/D(maj)
+      means(9) = sum(stats(9,:))/dble(n_branch-1)  ! D/D(pnt)
+      means(10) = sum(stats(10,:))/dble(n_minor)   ! D(min)/D(pnt)
+      means(11) = sum(stats(11,:))/dble(n_major)   ! D(maj)/D(pnt)
+
+      do i = 1,11
+         stats(i,:) = stats(i,:) - means(i)
+         stats(i,:) = stats(i,:)*stats(i,:)
+      enddo
+
+      write(*,'(115(''-''))')
+      if(ord_type.eq.1)then
+         write(10,'(/''Generation  branches   Length     Diam      L:D    Tot_xsec  Tot_vol    Brn_ang   Rtn_ang '')')
+         write(*,'(/''Generation  branches   Length     Diam      L:D    Tot_xsec  Tot_vol    Brn_ang   Rtn_ang '')')
+      elseif(ord_type.eq.2)then
+         write(10,'(/''Horsfield   branches   Length     Diam      L:D    Tot_xsec  Tot_vol    Brn_ang   Rtn_ang '')')
+         write(*,'(/''Horsfield   branches   Length     Diam      L:D    Tot_xsec  Tot_vol    Brn_ang   Rtn_ang '')')
+      elseif(ord_type.eq.3)then
+         write(10,'(/''Strahler    branches   Length     Diam      L:D    Tot_xsec  Tot_vol    Brn_ang   Rtn_ang '')')
+         write(*,'(/''Strahler    branches   Length     Diam      L:D    Tot_xsec  Tot_vol    Brn_ang   Rtn_ang '')')
+      endif
+      write(10,'(''            (number)    (mm)      (mm)              (mm^2)     (mL)      (deg)     (deg) '')')
+      write(*,'(''            (number)    (mm)      (mm)              (mm^2)     (mL)      (deg)     (deg) '')')
+      write(10,'(115(''-''))')
+      write(*,'(115(''-''))')
+
+      do n_order = 1,nmax_order
+         write(10,'( i6, 6x, i6, 7(f10.2) )') n_order, num_in_order(n_order), &
+              sum_length(n_order),sum_diameter(n_order),ratio_L_D(n_order),sum_crosssec(n_order), &
+              sum_volume(n_order)/1.0e3_dp,sum_brnch_angle(n_order),sum_rotn_angle(n_order)
+         write(*,'( i6, 6x, i6, 7(f10.2) )') n_order, num_in_order(n_order), &
+              sum_length(n_order),sum_diameter(n_order),ratio_L_D(n_order),sum_crosssec(n_order), &
+              sum_volume(n_order)/1.0e3_dp,sum_brnch_angle(n_order),sum_rotn_angle(n_order)
+      enddo
+
+      write(*,'(115(''-''))')
+      write(*,'('' Summary statistics:'')')
+      write(*,'('' Branch angle   = '',f8.2,'' ('',f5.2,'') degrees'',4x,''|  [36.1, 37.28, 39, 43]'')')  &
+           means(1), sqrt(sum(stats(1,:))/dble(n_branch-1))
+      write(*,'('' Rotation angle = '',f8.2,'' ('',f5.2,'') degrees'',4x,''|  [76.1, 79, 90]'')') &
+           means(2), sqrt(sum(stats(2,:))/dble(n_branch-3))
+      write(*,'('' Minor angle    = '',f8.2,'' ('',f5.2,'') degrees'',4x,''|  [36.6]'')') &
+           means(3), sqrt(sum(stats(3,:))/dble(n_minor))
+      write(*,'('' Major angle    = '',f8.2,'' ('',f5.2,'') degrees'',4x,''|  [35.5]'')') &
+           means(4), sqrt(sum(stats(4,:))/dble(n_major))
+      write(*,'('' L/D            = '',f8.2,'' ('',f5.2,'') '',11x,''|  [3.04,3.09,3.14,2.8-3.25]'')') &
+           means(5), sqrt(sum(stats(5,:))/dble(n_branch))
+      write(*,'('' L/D (minor)    = '',f8.2,'' ('',f5.2,'') '',11x,''|  [3.63]'')') &
+           means(6), sqrt(sum(stats(6,:))/dble(n_minor))
+      write(*,'('' L/D (major)    = '',f8.2,'' ('',f5.2,'') '',11x,''|  [2.48]'')') &
+           means(7), sqrt(sum(stats(7,:))/dble(n_major))
+      write(*,'('' D(min)/D(maj)  = '',f8.2,'' ('',f5.2,'') '',11x,''|  [0.85, 0.82, 0.74, 0.86]'')') &
+           means(8), sqrt(sum(stats(8,:))/dble(n_branch-1))
+      write(*,'('' D/D(pnt)       = '',f8.2,'' ('',f5.2,'') '',11x,''|  [0.71, 0.83, 0.78, 0.79, 0.76]'')') &
+           means(9), sqrt(sum(stats(9,:))/dble(n_branch-1))
+      write(*,'('' D(min)/D(pnt)  = '',f8.2,'' ('',f5.2,'') '',11x,''|  [0.66]'')') &
+           means(10), sqrt(sum(stats(10,:))/dble(n_minor))
+      write(*,'('' D(maj)/D(pnt)  = '',f8.2,'' ('',f5.2,'') '',11x,''|  [0.79, 0.86]'')') &
+           means(11), sqrt(sum(stats(11,:))/dble(n_major))
+      write(*,'('' L/L(pnt)       = '',f8.2,'' ('',f5.2,'') '',11x,''|  [1.18, 0.94]'')') 0.0_dp,0.0_dp
+      write(*,'('' L1/L2 (L1<L2)  = '',f8.2,'' ('',f5.2,'') '',11x,''|  [0.52, 0.58, 0.62]'')') 0.0_dp,0.0_dp
+
+
+      if(ord_type.gt.1)then ! only for Horsifled and Strahler ordering
+         ! also - RbS, RlS, RdS, RbH, RlH, RdH
+         forall(i = 1:nmax_order) x_list(i) = dble(i)
+
+         ! branching ratio - 
+         forall(i = 1:nmax_order) y_list(i) = log10(dble(num_in_order(nmax_order-i+1)))
+         call linear_regression(nmax_order,r_squared,slope,x_list,y_list)
+         ratio = 10.0_dp**(abs(slope))
+         if(ord_type.eq.2)then ! Horsfield
+            write(*,'('' Rb_H'',11x,''= '',f8.2,'' ('',f5.2,'') '',11x,''|  [1.38]'')') &
+                 ratio,r_squared
+         else if(ord_type.eq.3)then ! Strahler
+            write(*,'('' Rb_S'',11x,''= '',f8.2,'' ('',f5.2,'') '',11x,''|  [2.51-2.81]'')') &
+                 ratio,r_squared
+         endif
+         
+         ! length ratio - 
+         forall(i = 1:nmax_order) y_list(i) = log10(sum_length(i))
+         call linear_regression(nmax_order,r_squared,slope,x_list,y_list)
+         ratio = 10.0_dp**(abs(slope))
+         if(ord_type.eq.2)then ! Horsfield
+            write(*,'('' Rl_H'',11x,''= '',f8.2,'' ('',f5.2,'') '',11x,''|  [~1.11]'')') &
+                 ratio,r_squared
+         else if(ord_type.eq.3)then ! Strahler
+            write(*,'('' Rl_S'',11x,''= '',f8.2,'' ('',f5.2,'') '',11x,''|  [1.33-1.46]'')') &
+                 ratio,r_squared
+         endif
+         
+         ! diameter ratio - 
+         forall(i = 1:nmax_order) y_list(i) = log10(sum_diameter(i))
+         call linear_regression(nmax_order,r_squared,slope,x_list,y_list)
+         ratio = 10.0_dp**(abs(slope))
+         if(ord_type.eq.2)then ! Horsfield
+            write(*,'('' Rd_H'',11x,''= '',f8.2,'' ('',f5.2,'') '',11x,''|  [~1.11]'')') &
+                 ratio,r_squared
+         else if(ord_type.eq.3)then ! Strahler
+            write(*,'('' Rd_S'',11x,''= '',f8.2,'' ('',f5.2,'') '',11x,''|  [1.35-1.45]'')') &
+                 ratio,r_squared
+         endif
+         
+      endif
+
+      deallocate(stats)
+      
     end subroutine list_mesh_statistics
-
 
 !
 ! ##########################################################################
@@ -2442,10 +1956,7 @@ contains
           use arrays,only: dp
           use diagnostics,only: enter_exit
 
-!bsha          !implicit none
-      !!  INCLUDE 'b01.cmn'
-      !!  INCLUDE 'cbdi02.cmn'
-      !!  Parameter list
+      !  Parameter list
           integer, INTENT(IN) :: N
           real(dp), INTENT(IN) :: X(N),Y(N)
           real(dp), INTENT(OUT) :: r_squared,slope
@@ -2460,10 +1971,10 @@ contains
           sub_name = 'linear_regression'
           call enter_exit(sub_name,1)
 
-            YSUM=0.d0
-            XSUM=0.d0
-            XXSUM=0.d0
-            XYSUM=0.d0
+            YSUM=0.0_dp
+            XSUM=0.0_dp
+            XXSUM=0.0_dp
+            XYSUM=0.0_dp
             DO i=1,N
               YSUM=YSUM+Y(i)
               XSUM=XSUM+X(i)
@@ -2479,24 +1990,18 @@ contains
       !... see Numerical Recipes, Fortran 77, 2nd edition, page 632.
             AX=XSUM/N !mean of X
             AY=YSUM/N !mean of Y
-            SXX=0.d0
-            SYY=0.d0
-            SXY=0.d0
+            SXX=0.0_dp
+            SYY=0.0_dp
+            SXY=0.0_dp
             DO i=1,N
               XT=X(i)-AX
               YT=Y(i)-AY
-              SXX=SXX+XT**2.d0
-              SYY=SYY+YT**2.d0
+              SXX=SXX+XT**2.0_dp
+              SYY=SYY+YT**2.0_dp
               SXY=SXY+XT*YT
             ENDDO
             R=SXY/DSQRT(SXX*SYY)
             r_squared=R**2
-      !     IF(DOP)THEN
-      !       WRITE(OP_STRING,'('' Gradient: '',F8.3,'' Intercept: '','
-      !    '    //' F8.3,''R-squared correlation'',F8.3)')
-      !    '    slope,intercept,r_squared
-      !       CALL WRITES(IODI,OP_STRING,ERROR,*9999)
-      !     ENDIF
 
           call enter_exit(sub_name,2)
         end subroutine linear_regression
