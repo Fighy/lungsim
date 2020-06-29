@@ -1606,15 +1606,16 @@ contains
   !###################################################################################
   !
 
-    subroutine list_mesh_statistics(filename)
+    subroutine list_mesh_statistics(filename, order_type)
     !DEC$ ATTRIBUTES DLLEXPORT,ALIAS:"SO_LIST_MESH_STATISTICS" :: LIST_MESH_STATISTICS
 
   !     nindex(i) stores the order type (i=1,2,3,4 for generation, Horsfield
   !     order, Strahler order, diameter-defined Strahler order
   !     respectively) for the current element.
 
-      integer :: ord_type
       character(len=*),intent(in) :: filename
+      integer,intent(in)  :: order_type  ! order type 1=generation, 2=Horsfield, 3=Strahler
+
 
       ! Local Variables
       integer :: i,ne,ne0,ne_next,ne_sibling,ne0_0,ngen,nHord,nmax_order,nSord, &
@@ -1628,11 +1629,10 @@ contains
       logical :: add,found,major,minor
 
       character(len=60) :: sub_name = 'list_mesh_statistics'
+
        
       call enter_exit(sub_name,1)
 
-      ord_type = 2
-      
       allocate(stats(11,num_elems))
       
       means = 0.0_dp
@@ -1662,7 +1662,7 @@ contains
          
          if(add)then
             n_branch = n_branch + 1    ! increment the number of branches
-            n_order = elem_ordrs(ord_type,ne) ! the 1. generation, 2. Horsfield order, or 3. Strahler order
+            n_order = elem_ordrs(order_type,ne) ! the 1. generation, 2. Horsfield order, or 3. Strahler order
             nmax_order = max(n_order,nmax_order)  ! to find the maximum order
             num_in_order(n_order) = num_in_order(n_order) + 1  ! count branches in each order
             
@@ -1799,13 +1799,13 @@ contains
       enddo
 
       write(*,'(115(''-''))')
-      if(ord_type.eq.1)then
+      if(order_type.eq.1)then
          write(10,'(/''Generation  branches   Length     Diam      L:D    Tot_xsec  Tot_vol    Brn_ang   Rtn_ang '')')
          write(*,'(/''Generation  branches   Length     Diam      L:D    Tot_xsec  Tot_vol    Brn_ang   Rtn_ang '')')
-      elseif(ord_type.eq.2)then
+      elseif(order_type.eq.2)then
          write(10,'(/''Horsfield   branches   Length     Diam      L:D    Tot_xsec  Tot_vol    Brn_ang   Rtn_ang '')')
          write(*,'(/''Horsfield   branches   Length     Diam      L:D    Tot_xsec  Tot_vol    Brn_ang   Rtn_ang '')')
-      elseif(ord_type.eq.3)then
+      elseif(order_type.eq.3)then
          write(10,'(/''Strahler    branches   Length     Diam      L:D    Tot_xsec  Tot_vol    Brn_ang   Rtn_ang '')')
          write(*,'(/''Strahler    branches   Length     Diam      L:D    Tot_xsec  Tot_vol    Brn_ang   Rtn_ang '')')
       endif
@@ -1851,7 +1851,7 @@ contains
       write(*,'('' L1/L2 (L1<L2)  = '',f8.2,'' ('',f5.2,'') '',11x,''|  [0.52, 0.58, 0.62]'')') 0.0_dp,0.0_dp
 
 
-      if(ord_type.gt.1)then ! only for Horsifled and Strahler ordering
+      if(order_type.gt.1)then ! only for Horsifled and Strahler ordering
          ! also - RbS, RlS, RdS, RbH, RlH, RdH
          forall(i = 1:nmax_order) x_list(i) = dble(i)
 
@@ -1859,10 +1859,10 @@ contains
          forall(i = 1:nmax_order) y_list(i) = log10(dble(num_in_order(nmax_order-i+1)))
          call linear_regression(nmax_order,r_squared,slope,x_list,y_list)
          ratio = 10.0_dp**(abs(slope))
-         if(ord_type.eq.2)then ! Horsfield
+         if(order_type.eq.2)then ! Horsfield
             write(*,'('' Rb_H'',11x,''= '',f8.2,'' ('',f5.2,'') '',11x,''|  [1.38]'')') &
                  ratio,r_squared
-         else if(ord_type.eq.3)then ! Strahler
+         else if(order_type.eq.3)then ! Strahler
             write(*,'('' Rb_S'',11x,''= '',f8.2,'' ('',f5.2,'') '',11x,''|  [2.51-2.81]'')') &
                  ratio,r_squared
          endif
@@ -1871,10 +1871,10 @@ contains
          forall(i = 1:nmax_order) y_list(i) = log10(sum_length(i))
          call linear_regression(nmax_order,r_squared,slope,x_list,y_list)
          ratio = 10.0_dp**(abs(slope))
-         if(ord_type.eq.2)then ! Horsfield
+         if(order_type.eq.2)then ! Horsfield
             write(*,'('' Rl_H'',11x,''= '',f8.2,'' ('',f5.2,'') '',11x,''|  [~1.11]'')') &
                  ratio,r_squared
-         else if(ord_type.eq.3)then ! Strahler
+         else if(order_type.eq.3)then ! Strahler
             write(*,'('' Rl_S'',11x,''= '',f8.2,'' ('',f5.2,'') '',11x,''|  [1.33-1.46]'')') &
                  ratio,r_squared
          endif
@@ -1883,10 +1883,10 @@ contains
          forall(i = 1:nmax_order) y_list(i) = log10(sum_diameter(i))
          call linear_regression(nmax_order,r_squared,slope,x_list,y_list)
          ratio = 10.0_dp**(abs(slope))
-         if(ord_type.eq.2)then ! Horsfield
+         if(order_type.eq.2)then ! Horsfield
             write(*,'('' Rd_H'',11x,''= '',f8.2,'' ('',f5.2,'') '',11x,''|  [~1.11]'')') &
                  ratio,r_squared
-         else if(ord_type.eq.3)then ! Strahler
+         else if(order_type.eq.3)then ! Strahler
             write(*,'('' Rd_S'',11x,''= '',f8.2,'' ('',f5.2,'') '',11x,''|  [1.35-1.45]'')') &
                  ratio,r_squared
          endif

@@ -10,7 +10,7 @@ module geometry
   !This module handles all geometry read/write/generation.
   use arrays
   use diagnostics
-  use growtree
+! use growtree
   use indices
   use mesh_utilities
   use other_consts ! currently has pi

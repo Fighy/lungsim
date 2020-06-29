@@ -46,7 +46,7 @@ shortest_length, rotation_limit, to_export, filename_f)
 !###################################################################################
 !
 
-    subroutine list_mesh_statistics_c(filename, filename_len)&
+    subroutine list_mesh_statistics_c(filename, filename_len, order_type)&
    bind(C, name="list_mesh_statistics_c")
 
       use arrays,only: dp
@@ -57,15 +57,16 @@ shortest_length, rotation_limit, to_export, filename_f)
       implicit none
 
       integer,intent(in) :: filename_len
+      integer, intent(in) :: order_type
       type(c_ptr), value, intent(in) :: filename
       character(len=MAX_FILENAME_LEN) :: filename_f
 
       call strncpy(filename_f, filename, filename_len)
 
 #if defined _WIN32 && defined __INTEL_COMPILER
-      call so_list_mesh_statistics(filename_f)
+      call so_list_mesh_statistics(filename_f, order_type)
 #else
-      call list_mesh_statistics(filename_f)
+      call list_mesh_statistics(filename_f, order_type)
 #endif
 
     end subroutine list_mesh_statistics_c
