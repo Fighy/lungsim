@@ -4,7 +4,7 @@
 #include "string.h"
 
 void grow_tree_c(int *parent_ne, int *surface_elems, double *angle_max, double *angle_min, double *branch_fraction, double *length_limit, double *shortest_length, double *rotation_limit, int *to_export, const char *filename, int *filename_len);
-void list_mesh_statistics_c(char *filename, int *filename_len, int order_type);
+void list_mesh_statistics_c(const char *filename, int *filename_len, int order_type);
 
 void grow_tree(int parent_ne, int surface_elems, double angle_max, double angle_min, double branch_fraction, double length_limit, double shortest_length, double rotation_limit,int to_export, const char *filename)
 {
